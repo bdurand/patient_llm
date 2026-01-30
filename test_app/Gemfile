@@ -1,0 +1,13 @@
+source "https://rubygems.org"
+
+gem "sidekiq-async_http", path: "../../sidekiq-async_http"
+gem "faraday-sidekiq_async_http", path: "../../faraday-sidekiq_async_http"
+gem "sidekiq-async_llm", path: ".."
+
+gem "async"
+gem "async-http"
+gem "protocol-rack"
+gem "rack-session"
+gem "json"
+gem "irb"
+
