@@ -73,20 +73,82 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         }
       end
 
-      it "transforms job args to [response, chat, message]" do
+      it "transforms job args to [response, chat, message, callback_args]" do
         yielded = false
         middleware.call(worker, job, queue) { yielded = true }
 
         expect(yielded).to be true
-        expect(job["args"].length).to eq(3)
+        expect(job["args"].length).to eq(4)
 
-        response_arg, chat, message = job["args"]
+        response_arg, chat, message, callback_args = job["args"]
         expect(response_arg).to eq(response)
         expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
         expect(chat.model).to eq("gpt-4")
         expect(message).to be_a(RubyLLM::Message)
         expect(message.role).to eq(:assistant)
         expect(message.content).to eq("Hello! How can I help you?")
+        expect(callback_args).to eq({})
+      end
+    end
+
+    context "with a completion response with custom callback_args" do
+      let(:response_body) do
+        {
+          "id" => "chatcmpl-123",
+          "object" => "chat.completion",
+          "model" => "gpt-4",
+          "choices" => [
+            {
+              "index" => 0,
+              "message" => {
+                "role" => "assistant",
+                "content" => "Hello!"
+              },
+              "finish_reason" => "stop"
+            }
+          ],
+          "usage" => {
+            "prompt_tokens" => 10,
+            "completion_tokens" => 8,
+            "total_tokens" => 18
+          }
+        }
+      end
+
+      let(:response) do
+        Sidekiq::AsyncHttp::Response.new(
+          status: 200,
+          headers: {"content-type" => "application/json"},
+          body: response_body.to_json,
+          duration: 1.5,
+          request_id: "test-123",
+          url: "https://api.openai.com/v1/chat/completions",
+          http_method: :post,
+          callback_args: {
+            "chat" => chat_data,
+            "provider" => "openai",
+            "model" => "gpt-4",
+            "custom" => {"request_id" => "abc-123", "user_id" => 42}
+          }
+        )
+      end
+
+      let(:job) do
+        {
+          "class" => "TestCompletionWorker",
+          "args" => [response]
+        }
+      end
+
+      it "passes custom callback_args as the fourth argument" do
+        yielded = false
+        middleware.call(worker, job, queue) { yielded = true }
+
+        expect(yielded).to be true
+        expect(job["args"].length).to eq(4)
+
+        _response_arg, _chat, _message, callback_args = job["args"]
+        expect(callback_args).to eq({"request_id" => "abc-123", "user_id" => 42})
       end
     end
 
@@ -116,16 +178,56 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         }
       end
 
-      it "transforms job args to [error, chat]" do
+      it "transforms job args to [error, chat, callback_args]" do
         yielded = false
         middleware.call(worker, job, queue) { yielded = true }
 
         expect(yielded).to be true
-        expect(job["args"].length).to eq(2)
+        expect(job["args"].length).to eq(3)
 
-        error_arg, chat = job["args"]
+        error_arg, chat, callback_args = job["args"]
         expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
         expect(error_arg).to eq(error)
+        expect(callback_args).to eq({})
+      end
+    end
+
+    context "with an error response with custom callback_args" do
+      let(:error) do
+        Sidekiq::AsyncHttp::RequestError.new(
+          class_name: "Async::TimeoutError",
+          message: "Request timed out after 60 seconds",
+          backtrace: [],
+          error_type: :timeout,
+          duration: 60.0,
+          request_id: "test-123",
+          url: "https://api.openai.com/v1/chat/completions",
+          http_method: :post,
+          callback_args: {
+            "chat" => chat_data,
+            "provider" => "openai",
+            "model" => "gpt-4",
+            "custom" => {"request_id" => "abc-123", "user_id" => 42}
+          }
+        )
+      end
+
+      let(:job) do
+        {
+          "class" => "TestErrorWorker",
+          "args" => [error]
+        }
+      end
+
+      it "passes custom callback_args as the third argument" do
+        yielded = false
+        middleware.call(worker, job, queue) { yielded = true }
+
+        expect(yielded).to be true
+        expect(job["args"].length).to eq(3)
+
+        _error_arg, _chat, callback_args = job["args"]
+        expect(callback_args).to eq({"request_id" => "abc-123", "user_id" => 42})
       end
     end
 

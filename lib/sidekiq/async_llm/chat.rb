@@ -173,8 +173,9 @@ module Sidekiq
       # Send a message and make an async LLM request.
       #
       # @param message [String, nil] Optional message to add before asking
+      # @param callback_args [Hash] Custom arguments to pass to callback workers
       # @return [Faraday::Response] Placeholder response (202 Accepted)
-      def ask(message = nil)
+      def ask(message = nil, callback_args: {})
         add_message(role: :user, content: message) if message
 
         model_info, provider_instance = resolve_model_and_provider
@@ -190,7 +191,8 @@ module Sidekiq
               callback_args: {
                 chat: as_json,
                 provider: provider_instance.class.slug.to_s,
-                model: model_info.id
+                model: model_info.id,
+                custom: deep_stringify_keys(callback_args)
               }
             }
           }

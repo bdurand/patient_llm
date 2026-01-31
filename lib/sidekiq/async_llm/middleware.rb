@@ -8,8 +8,8 @@ module Sidekiq
     # deserializes the Chat object from callback_args, and converts the
     # HTTP response to a parsed RubyLLM response.
     #
-    # For completion callbacks, the job args are transformed to: [chat, response]
-    # For error callbacks, the job args are transformed to: [chat, error]
+    # For completion callbacks, the job args are transformed to: [response, chat, message, callback_args]
+    # For error callbacks, the job args are transformed to: [error, chat, callback_args]
     class Middleware
       include Sidekiq::ServerMiddleware
 
@@ -84,8 +84,10 @@ module Sidekiq
         message = provider_instance.send(:parse_completion_response, faraday_response)
         Sidekiq.logger.debug("AsyncLLM::Middleware message parsed: #{message.class}")
 
+        custom_callback_args = callback_args.fetch(:custom, {})
+
         Sidekiq.logger.debug("AsyncLLM::Middleware replacing args with [#{chat.class}, #{message.class}, metadata]")
-        job["args"] = [response, chat, message]
+        job["args"] = [response, chat, message, custom_callback_args]
         Sidekiq.logger.debug("AsyncLLM::Middleware args replaced, new count: #{job['args'].size}")
       end
 
@@ -98,8 +100,9 @@ module Sidekiq
         return unless chat_data.is_a?(Hash)
 
         chat = Chat.load(chat_data)
+        custom_callback_args = callback_args.fetch(:custom, {})
 
-        job["args"] = [error, chat]
+        job["args"] = [error, chat, custom_callback_args]
       end
     end
   end
