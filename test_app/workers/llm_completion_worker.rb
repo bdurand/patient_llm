@@ -3,7 +3,7 @@
 class LLMCompletionWorker
   include Sidekiq::Job
 
-  def perform(response, chat, message)
+  def perform(response, chat, message, callback_args)
     Sidekiq.logger.info("LLMCompletionWorker received: chat=#{chat.class}, message=#{message.class}")
 
     # Handle case where middleware didn't process (raw Response object)

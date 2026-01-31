@@ -10,4 +10,3 @@ gem "protocol-rack"
 gem "rack-session"
 gem "json"
 gem "irb"
-

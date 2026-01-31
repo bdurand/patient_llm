@@ -3,7 +3,7 @@
 class LLMErrorWorker
   include Sidekiq::Job
 
-  def perform(error, chat)
+  def perform(error, chat, callback_args)
     # chat is a Sidekiq::AsyncLLM::Chat instance (deserialized by middleware)
     # error is a Sidekiq::AsyncLLM::AsyncLLMError instance
 

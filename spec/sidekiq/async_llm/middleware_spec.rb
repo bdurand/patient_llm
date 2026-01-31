@@ -87,7 +87,8 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         expect(message).to be_a(RubyLLM::Message)
         expect(message.role).to eq(:assistant)
         expect(message.content).to eq("Hello! How can I help you?")
-        expect(callback_args).to eq({})
+        expect(callback_args).to be_a(Sidekiq::AsyncHttp::CallbackArgs)
+        expect(callback_args.to_h).to eq({})
       end
     end
 
@@ -148,7 +149,8 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         expect(job["args"].length).to eq(4)
 
         _response_arg, _chat, _message, callback_args = job["args"]
-        expect(callback_args).to eq({"request_id" => "abc-123", "user_id" => 42})
+        expect(callback_args.to_h).to eq({request_id: "abc-123", user_id: 42})
+        expect(callback_args).to be_a(Sidekiq::AsyncHttp::CallbackArgs)
       end
     end
 
@@ -188,7 +190,8 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         error_arg, chat, callback_args = job["args"]
         expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
         expect(error_arg).to eq(error)
-        expect(callback_args).to eq({})
+        expect(callback_args.to_h).to eq({})
+        expect(callback_args).to be_a(Sidekiq::AsyncHttp::CallbackArgs)
       end
     end
 
@@ -227,7 +230,8 @@ RSpec.describe Sidekiq::AsyncLLM::Middleware do
         expect(job["args"].length).to eq(3)
 
         _error_arg, _chat, callback_args = job["args"]
-        expect(callback_args).to eq({"request_id" => "abc-123", "user_id" => 42})
+        expect(callback_args.to_h).to eq({request_id: "abc-123", user_id: 42})
+        expect(callback_args).to be_a(Sidekiq::AsyncHttp::CallbackArgs)
       end
     end
 

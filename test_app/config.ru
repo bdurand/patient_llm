@@ -1,4 +1,4 @@
-  # frozen_string_literal: true
+# frozen_string_literal: true
 
 # Load actions
 Dir[File.join(__dir__, "actions", "*.rb")].each { |f| require f }
@@ -25,7 +25,11 @@ end
 
 # Sidekiq Web UI
 map "/sidekiq" do
-  session_secret = File.read(File.join(__dir__, ".session.key")).strip rescue SecureRandom.hex(32)
+  session_secret = begin
+    File.read(File.join(__dir__, ".session.key")).strip
+  rescue
+    SecureRandom.hex(32)
+  end
   use Rack::Session::Cookie, secret: session_secret, same_site: true, max_age: 86400
   run Sidekiq::Web
 end

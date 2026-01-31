@@ -25,6 +25,8 @@ class TestErrorWorker
   end
 end
 
+Sidekiq.logger.level = Logger::ERROR
+
 RSpec.configure do |config|
   config.disable_monkey_patching!
   config.default_formatter = "doc" if config.files_to_run.one?
