@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-class LlmCompletionWorker
+class LLMCompletionWorker
   include Sidekiq::Job
 
   def perform(response, chat, message)
-    Sidekiq.logger.info("LlmCompletionWorker received: chat=#{chat.class}, message=#{message.class}")
+    Sidekiq.logger.info("LLMCompletionWorker received: chat=#{chat.class}, message=#{message.class}")
 
     # Handle case where middleware didn't process (raw Response object)
     if chat.is_a?(Sidekiq::AsyncHttp::Response)
@@ -15,7 +15,7 @@ class LlmCompletionWorker
       return
     end
 
-    # chat is a Sidekiq::AsyncLlm::Chat instance (deserialized by middleware)
+    # chat is a Sidekiq::AsyncLLM::Chat instance (deserialized by middleware)
     # message is a RubyLLM::Message instance
     # metadata contains duration and other info
 

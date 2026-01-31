@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Sidekiq::AsyncLlm::Middleware do
+RSpec.describe Sidekiq::AsyncLLM::Middleware do
   let(:middleware) { described_class.new }
   let(:worker) { TestCompletionWorker.new }
   let(:queue) { "default" }
@@ -82,7 +82,7 @@ RSpec.describe Sidekiq::AsyncLlm::Middleware do
 
         response_arg, chat, message = job["args"]
         expect(response_arg).to eq(response)
-        expect(chat).to be_a(Sidekiq::AsyncLlm::Chat)
+        expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
         expect(chat.model).to eq("gpt-4")
         expect(message).to be_a(RubyLLM::Message)
         expect(message.role).to eq(:assistant)
@@ -124,7 +124,7 @@ RSpec.describe Sidekiq::AsyncLlm::Middleware do
         expect(job["args"].length).to eq(2)
 
         error_arg, chat = job["args"]
-        expect(chat).to be_a(Sidekiq::AsyncLlm::Chat)
+        expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
         expect(error_arg).to eq(error)
       end
     end

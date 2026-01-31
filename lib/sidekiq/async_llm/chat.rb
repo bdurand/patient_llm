@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
 module Sidekiq
-  module AsyncLlm
+  module AsyncLLM
     # Chat is the main interface for making asynchronous LLM requests.
     # It provides a similar interface to RubyLLM::Chat but is designed
     # for async HTTP requests via Sidekiq.
     #
     # @example Basic usage
-    #   chat = Sidekiq::AsyncLlm::Chat.new(
+    #   chat = Sidekiq::AsyncLLM::Chat.new(
     #     completion_worker: MyCompletionWorker,
     #     error_worker: MyErrorWorker,
     #     model: "gpt-4"

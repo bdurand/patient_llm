@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-class LlmErrorWorker
+class LLMErrorWorker
   include Sidekiq::Job
 
   def perform(error, chat)
-    # chat is a Sidekiq::AsyncLlm::Chat instance (deserialized by middleware)
-    # error is a Sidekiq::AsyncLlm::AsyncLlmError instance
+    # chat is a Sidekiq::AsyncLLM::Chat instance (deserialized by middleware)
+    # error is a Sidekiq::AsyncLLM::AsyncLLMError instance
 
     # Build error result payload
     result = {

@@ -4,7 +4,7 @@ class ChatRequestWorker
   include Sidekiq::Job
 
   def perform(chat_json, user_message)
-    chat = Sidekiq::AsyncLlm::Chat.load(chat_json)
+    chat = Sidekiq::AsyncLLM::Chat.load(chat_json)
     chat.ask(user_message)
 
     puts JSON.pretty_generate(chat.as_json)

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Sidekiq
-  module AsyncLlm
+  module AsyncLLM
     # Sidekiq server middleware that processes async LLM responses.
     #
     # This middleware intercepts jobs from completion and error workers,
@@ -14,18 +14,18 @@ module Sidekiq
       include Sidekiq::ServerMiddleware
 
       def call(worker, job, queue)
-        Sidekiq.logger.debug("AsyncLlm::Middleware processing job: #{job['class']}")
-        Sidekiq.logger.debug("AsyncLlm::Middleware args count: #{job['args']&.size}")
-        Sidekiq.logger.debug("AsyncLlm::Middleware first arg class: #{job['args']&.first&.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware processing job: #{job['class']}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware args count: #{job['args']&.size}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware first arg class: #{job['args']&.first&.class}")
 
         process_async_llm_callback(job)
 
-        Sidekiq.logger.debug("AsyncLlm::Middleware after processing, args count: #{job['args']&.size}")
-        Sidekiq.logger.debug("AsyncLlm::Middleware after processing, first arg class: #{job['args']&.first&.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware after processing, args count: #{job['args']&.size}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware after processing, first arg class: #{job['args']&.first&.class}")
 
         yield
       rescue => e
-        Sidekiq.logger.error("AsyncLlm Middleware error: #{e.class} - #{e.message}")
+        Sidekiq.logger.error("AsyncLLM Middleware error: #{e.class} - #{e.message}")
         Sidekiq.logger.error(e.backtrace&.first(5)&.join("\n"))
         raise
       end
@@ -46,47 +46,47 @@ module Sidekiq
       end
 
       def process_completion(job, response)
-        Sidekiq.logger.debug("AsyncLlm::Middleware.process_completion called")
+        Sidekiq.logger.debug("AsyncLLM::Middleware.process_completion called")
 
         # Get chat data from callback_args
         callback_args = response.callback_args
-        Sidekiq.logger.debug("AsyncLlm::Middleware callback_args keys: #{callback_args.keys.inspect}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware callback_args keys: #{callback_args.keys.inspect}")
 
         unless callback_args.include?(:chat)
-          Sidekiq.logger.debug("AsyncLlm::Middleware no :chat key found, returning early")
+          Sidekiq.logger.debug("AsyncLLM::Middleware no :chat key found, returning early")
           return
         end
 
         chat_data = callback_args.fetch(:chat, nil)
-        Sidekiq.logger.debug("AsyncLlm::Middleware chat_data class: #{chat_data.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware chat_data class: #{chat_data.class}")
 
         unless chat_data.is_a?(Hash)
-          Sidekiq.logger.debug("AsyncLlm::Middleware chat_data is not a Hash, returning early")
+          Sidekiq.logger.debug("AsyncLLM::Middleware chat_data is not a Hash, returning early")
           return
         end
 
         provider_slug = callback_args.fetch(:provider, nil)
         model_id = callback_args.fetch(:model, nil)
-        Sidekiq.logger.debug("AsyncLlm::Middleware provider: #{provider_slug}, model: #{model_id}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware provider: #{provider_slug}, model: #{model_id}")
 
         chat = Chat.load(chat_data)
-        Sidekiq.logger.debug("AsyncLlm::Middleware chat loaded: #{chat.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware chat loaded: #{chat.class}")
 
         # Build a Faraday-like response for the provider
         faraday_response = Faraday::SidekiqAsyncHttp.to_faraday_response(response)
-        Sidekiq.logger.debug("AsyncLlm::Middleware faraday_response built, body class: #{faraday_response.body.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware faraday_response built, body class: #{faraday_response.body.class}")
 
         # Get the provider instance
         _, provider_instance = RubyLLM::Models.resolve(model_id, provider: provider_slug, assume_exists: true)
-        Sidekiq.logger.debug("AsyncLlm::Middleware provider_instance: #{provider_instance.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware provider_instance: #{provider_instance.class}")
 
         # Parse the response using the provider (method is private)
         message = provider_instance.send(:parse_completion_response, faraday_response)
-        Sidekiq.logger.debug("AsyncLlm::Middleware message parsed: #{message.class}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware message parsed: #{message.class}")
 
-        Sidekiq.logger.debug("AsyncLlm::Middleware replacing args with [#{chat.class}, #{message.class}, metadata]")
+        Sidekiq.logger.debug("AsyncLLM::Middleware replacing args with [#{chat.class}, #{message.class}, metadata]")
         job["args"] = [response, chat, message]
-        Sidekiq.logger.debug("AsyncLlm::Middleware args replaced, new count: #{job['args'].size}")
+        Sidekiq.logger.debug("AsyncLLM::Middleware args replaced, new count: #{job['args'].size}")
       end
 
       def process_error(job, error)

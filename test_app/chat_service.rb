@@ -31,9 +31,9 @@ class ChatService
     def chat(options)
       options = options.transform_keys(&:to_sym)
 
-      chat = Sidekiq::AsyncLlm::Chat.new(
-        completion_worker: LlmCompletionWorker,
-        error_worker: LlmErrorWorker,
+      chat = Sidekiq::AsyncLLM::Chat.new(
+        completion_worker: LLMCompletionWorker,
+        error_worker: LLMErrorWorker,
         provider: "openai", # LM Studio is OpenAI-compatible
         api_base: AppConfig.llm_api_base
       )

@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Sidekiq::AsyncLlm::Chat do
+RSpec.describe Sidekiq::AsyncLLM::Chat do
   let(:chat) do
     described_class.new(
       completion_worker: TestCompletionWorker,
@@ -221,7 +221,7 @@ RSpec.describe Sidekiq::AsyncLlm::Chat do
 
     it "serializes to a hash" do
       json = chat.as_json
-      expect(json["v"]).to eq(Sidekiq::AsyncLlm::Chat::SERIALIZATION_VERSION)
+      expect(json["v"]).to eq(Sidekiq::AsyncLLM::Chat::SERIALIZATION_VERSION)
       expect(json["completion_worker"]).to eq("TestCompletionWorker")
       expect(json["error_worker"]).to eq("TestErrorWorker")
       expect(json["model"]).to eq("gpt-4")

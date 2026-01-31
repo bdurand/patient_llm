@@ -14,11 +14,11 @@ class ChatAction
 
     # Load existing chat or create new one
     chat = if params["chat"]
-      Sidekiq::AsyncLlm::Chat.load(params["chat"])
+      Sidekiq::AsyncLLM::Chat.load(params["chat"])
     else
-      Sidekiq::AsyncLlm::Chat.new(
-        completion_worker: LlmCompletionWorker,
-        error_worker: LlmErrorWorker,
+      Sidekiq::AsyncLLM::Chat.new(
+        completion_worker: LLMCompletionWorker,
+        error_worker: LLMErrorWorker,
         model: params["model"],
         provider: "openai", # LM Studio is OpenAI-compatible
         api_base: params["api_base"]
