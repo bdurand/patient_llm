@@ -34,13 +34,13 @@
         <h2>Settings</h2>
 
         <div class="setting-group">
-          <label for="api-base">API Base URL</label>
-          <input type="text" id="api-base" value="http://localhost:1234" placeholder="http://localhost:1234">
+          <label for="api-url">API URL</label>
+          <input type="text" id="api-url" value="http://localhost:1234/v1/chat/completions" placeholder="http://localhost:1234/v1/chat/completions" autocomplete="off" autocapitalize="off">
         </div>
 
         <div class="setting-group">
           <label for="model">Model</label>
-          <input type="text" id="model" value="local-model" placeholder="local-model">
+          <input type="text" id="model" value="local-model" placeholder="local-model" autocomplete="off" autocapitalize="off">
         </div>
 
         <div class="setting-group">
@@ -88,13 +88,6 @@
 
         <div class="setting-group">
           <button type="button" id="reset-btn" class="reset-btn">Reset Conversation</button>
-        </div>
-
-        <div class="setting-group">
-          <label>
-            <input type="checkbox" id="call-from-sidekiq">
-            Call From Sidekiq
-          </label>
         </div>
       </div>
     </div>
@@ -172,7 +165,7 @@
     // Get settings
     function getSettings() {
       return {
-        api_base: document.getElementById('api-base').value,
+        api_url: document.getElementById('api-url').value,
         model: document.getElementById('model').value,
         system_prompt: document.getElementById('system-prompt').value,
         temperature: parseFloat(temperatureEl.value),
@@ -180,8 +173,7 @@
         thinking_enabled: thinkingEnabledEl.checked,
         thinking_effort: document.getElementById('thinking-effort').value,
         thinking_budget: parseInt(document.getElementById('thinking-budget').value),
-        schema: document.getElementById('schema').value,
-        call_from_sidekiq: document.getElementById('call-from-sidekiq').checked
+        schema: document.getElementById('schema').value
       };
     }
 

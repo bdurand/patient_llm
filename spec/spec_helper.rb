@@ -10,21 +10,6 @@ RubyLLM.configure do |config|
   config.anthropic_api_key = "test-key"
 end
 
-# Mock worker classes for testing
-class TestCompletionWorker
-  include Sidekiq::Job if defined?(Sidekiq::Job)
-
-  def perform(chat, response)
-  end
-end
-
-class TestErrorWorker
-  include Sidekiq::Job if defined?(Sidekiq::Job)
-
-  def perform(chat, error)
-  end
-end
-
 Sidekiq.logger.level = Logger::ERROR
 
 RSpec.configure do |config|

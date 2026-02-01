@@ -88,12 +88,7 @@ end
 Create a `Chat` instance and call `ask` to make an async request:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(
-  completion_worker: LLMCompletionWorker,
-  error_worker: LLMErrorWorker,
-  model: "gpt-4o"
-)
-
+chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
 chat.with_instructions("You are a helpful assistant.")
 chat.ask("What is the capital of France?")
 ```
@@ -105,10 +100,7 @@ The request is sent asynchronously. When the LLM responds, your `LLMCompletionWo
 The `Chat` class supports various configuration methods:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(
-  completion_worker: LLMCompletionWorker,
-  error_worker: LLMErrorWorker
-)
+chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
 
 # Set the model
 chat.with_model("gpt-4o", provider: :openai)
@@ -144,11 +136,7 @@ Conversations can be serialized to JSON for storage and later restored:
 
 ```ruby
 # Initial request
-chat = Sidekiq::AsyncLLM::Chat.new(
-  completion_worker: LLMCompletionWorker,
-  error_worker: LLMErrorWorker,
-  model: "claude-sonnet-4-20250514"
-)
+chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
 chat.with_instructions("You are a helpful assistant.")
 chat.ask("Hello!")
 

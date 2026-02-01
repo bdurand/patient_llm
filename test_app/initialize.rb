@@ -9,10 +9,9 @@ require "sidekiq-async_llm"
 require "json"
 
 require_relative "app_config"
-require_relative "chat_service"
 
 # Load workers
-Dir[File.join(__dir__, "workers", "*.rb")].each { |f| require f }
+Dir[File.join(__dir__, "lib", "*.rb")].each { |f| require f }
 
 # Configure Sidekiq
 Sidekiq.configure_server do |config|

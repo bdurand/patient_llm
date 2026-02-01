@@ -12,16 +12,26 @@ class ChatAction
       return [400, {"content-type" => "application/json"}, [{error: "Message is required"}.to_json]]
     end
 
+    api_url = params["api_url"]
+    api_base = nil
+    completion_path = nil
+    if api_url
+      uri = URI.parse(api_url)
+      completion_path = uri.path
+      uri.path = ""
+      api_base = uri.to_s
+    end
+
     # Load existing chat or create new one
     chat = if params["chat"]
       Sidekiq::AsyncLLM::Chat.load(params["chat"])
     else
       Sidekiq::AsyncLLM::Chat.new(
-        completion_worker: LLMCompletionWorker,
-        error_worker: LLMErrorWorker,
+        callback: LLMCallback,
         model: params["model"],
         provider: "openai", # LM Studio is OpenAI-compatible
-        api_base: params["api_base"]
+        api_base: api_base,
+        completion_path: completion_path
       )
     end
 
@@ -54,12 +64,7 @@ class ChatAction
       chat.with_params(max_tokens: params["max_tokens"].to_i)
     end
 
-    # Either call from Sidekiq worker or directly
-    if params["call_from_sidekiq"]
-      ChatRequestWorker.perform_async(chat.as_json, user_message)
-    else
-      chat.ask(user_message)
-    end
+    chat.ask(user_message)
 
     [202, {"content-type" => "application/json"}, [{status: "accepted"}.to_json]]
   rescue JSON::ParserError => e

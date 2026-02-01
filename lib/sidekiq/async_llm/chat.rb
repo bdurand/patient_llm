@@ -7,11 +7,7 @@ module Sidekiq
     # for async HTTP requests via Sidekiq.
     #
     # @example Basic usage
-    #   chat = Sidekiq::AsyncLLM::Chat.new(
-    #     completion_worker: MyCompletionWorker,
-    #     error_worker: MyErrorWorker,
-    #     model: "gpt-4"
-    #   )
+    #   chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
     #   chat.with_instructions("You are a helpful assistant")
     #   chat.add_message(role: :user, content: "Hello!")
     #   chat.ask
@@ -25,28 +21,78 @@ module Sidekiq
     class Chat
       SERIALIZATION_VERSION = 1
 
-      attr_reader :messages, :model, :provider, :temperature, :thinking,
-        :schema, :params, :headers, :completion_worker, :error_worker, :api_base
+      class << self
+        # Deserialize a chat from a JSON hash.
+        #
+        # @param data [Hash] Serialized chat data
+        # @return [Chat]
+        def load(data)
+          data = data.transform_keys(&:to_s) if data.is_a?(Hash)
+
+          new(
+            callback: data["callback"],
+            model: data["model"],
+            provider: data["provider"],
+            api_base: data["api_base"],
+            completion_path: data["completion_path"],
+            temperature: data["temperature"],
+            thinking_effort: data.dig("thinking_effort"),
+            thinking_budget: data.dig("thinking_budget"),
+            schema: data["schema"],
+            params: data["params"],
+            headers: data["headers"],
+            messages: data["messages"]
+          )
+        end
+      end
+
+      attr_reader :messages, :model, :provider, :temperature, :thinking_effort, :thinking_budget,
+        :schema, :params, :headers, :callback, :api_base
 
       # Initialize a new Chat instance.
       #
-      # @param completion_worker [Class] Sidekiq worker class for successful completions
-      # @param error_worker [Class] Sidekiq worker class for errors
+      # @param callback [Class, String] The callback instance to handle completion and error events
       # @param model [String, nil] Model identifier (e.g., "gpt-4", "claude-3-opus")
       # @param provider [String, Symbol, nil] Provider identifier (e.g., "openai", "anthropic")
       # @param api_base [String, nil] Override the provider's API base URL (for LM Studio, etc.)
-      def initialize(completion_worker:, error_worker:, model: nil, provider: nil, api_base: nil)
-        @completion_worker = completion_worker
-        @error_worker = error_worker
+      def initialize(
+        callback:,
+        model: nil,
+        provider: nil,
+        api_base: nil,
+        completion_path: nil,
+        instructions: nil,
+        messages: nil,
+        temperature: nil,
+        thinking_effort: nil,
+        thinking_budget: nil,
+        schema: nil,
+        params: nil,
+        headers: nil
+      )
+        # TODO : validate callback class
+        @callback = callback
         @model = model
         @provider = provider&.to_s
         @api_base = api_base
+        @completion_path = completion_path
         @messages = []
         @temperature = nil
-        @thinking = nil
+        @thinking_effort = nil
+        @thinking_budget = nil
         @schema = nil
         @params = {}
         @headers = {}
+
+        with_instructions(instructions) if instructions
+        add_messages(messages) if messages
+        with_temperature(temperature) if temperature
+        if thinking_effort || thinking_budget
+          with_thinking(effort: thinking_effort, budget: thinking_budget)
+        end
+        with_schema(schema) if schema
+        with_params(params) if params
+        with_headers(headers) if headers
       end
 
       # Set system instructions.
@@ -108,9 +154,21 @@ module Sidekiq
       # @param budget [Integer, nil] Token budget for thinking
       # @return [self]
       def with_thinking(effort: nil, budget: nil)
-        @thinking = {effort: effort&.to_s, budget: budget}.compact
-        @thinking = nil if @thinking.empty?
+        @thinking_effort = effort&.to_s
+        @thinking_budget = budget
         self
+      end
+
+      def without_thinking
+        @thinking_effort = nil
+        @thinking_budget = nil
+        self
+      end
+
+      def thinking
+        if @thinking_effort || @thinking_budget
+          {effort: @thinking_effort, budget: @thinking_budget}
+        end
       end
 
       # Set a JSON schema for structured output.
@@ -130,7 +188,7 @@ module Sidekiq
       #
       # @param params [Hash] Parameters to merge
       # @return [self]
-      def with_params(**params)
+      def with_params(params)
         @params.merge!(params)
         self
       end
@@ -139,22 +197,29 @@ module Sidekiq
       #
       # @param headers [Hash] Headers to merge
       # @return [self]
-      def with_headers(**headers)
+      def with_headers(headers)
         @headers.merge!(headers)
+        self
+      end
+
+      def add_messages(messages)
+        messages.each do |m|
+          add_message(m)
+        end
         self
       end
 
       # Add a message to the conversation.
       #
-      # @param message_or_attrs [Hash, RubyLLM::Message] Message hash or object
+      # @param message_or_attrs [Hash, RubyLLM::Message, String] Message hash or object
       # @return [self]
       def add_message(message_or_attrs)
         message = if message_or_attrs.is_a?(Hash)
-          message_or_attrs.transform_keys(&:to_sym)
+          deserialize_message_hash(message_or_attrs)
         elsif message_or_attrs.respond_to?(:role) && message_or_attrs.respond_to?(:content)
           {role: message_or_attrs.role.to_sym, content: message_or_attrs.content}
         else
-          raise ArgumentError, "Message must be a Hash or respond to #role and #content"
+          {role: :user, content: message_or_attrs.to_s}
         end
 
         message[:role] = message[:role].to_sym
@@ -181,25 +246,23 @@ module Sidekiq
         model_info, provider_instance = resolve_model_and_provider
         payload = build_payload(model_info, provider_instance)
 
-        connection = build_connection(provider_instance)
-        connection.post(completion_path(provider_instance)) do |req|
-          req.body = payload.to_json
-          req.options.context = {
-            sidekiq_async_http: {
-              completion_worker: resolve_worker_class(completion_worker),
-              error_worker: resolve_worker_class(error_worker),
-              callback_args: {
-                chat: as_json,
-                provider: provider_instance.class.slug.to_s,
-                model: model_info.id,
-                custom: deep_stringify_keys(callback_args)
-              }
-            }
-          }
-        end
-      end
+        base_url = api_base || provider_instance.api_base
+        request_url = URI.join(base_url, completion_path).to_s
+        request_headers = provider_instance.headers.merge(headers)
 
-      alias_method :say, :ask
+        Sidekiq::AsyncHttp.post(
+          request_url,
+          json: payload,
+          headers: request_headers,
+          raise_error_responses: true,
+          callback: Sidekiq::AsyncLLM::Callback,
+          callback_args: {
+            chat: as_json,
+            chat_callback: @callback&.to_s,
+            custom: deep_stringify_keys(callback_args)
+          }
+        )
+      end
 
       # Serialize the chat to a JSON-compatible hash.
       #
@@ -207,14 +270,15 @@ module Sidekiq
       def as_json
         {
           "v" => SERIALIZATION_VERSION,
-          "completion_worker" => worker_to_string(completion_worker),
-          "error_worker" => worker_to_string(error_worker),
+          "callback" => @callback&.to_s,
           "model" => model,
           "provider" => provider,
           "api_base" => api_base,
+          "completion_path" => completion_path,
           "messages" => messages.map { |m| serialize_message(m) },
           "temperature" => temperature,
-          "thinking" => deep_stringify_keys(thinking),
+          "thinking_effort" => @thinking_effort,
+          "thinking_budget" => @thinking_budget,
           "schema" => deep_stringify_keys(schema),
           "params" => deep_stringify_keys(params),
           "headers" => deep_stringify_keys(headers)
@@ -223,32 +287,22 @@ module Sidekiq
 
       alias_method :dump, :as_json
 
-      # Deserialize a chat from a JSON hash.
-      #
-      # @param data [Hash] Serialized chat data
-      # @return [Chat]
-      def self.load(data)
-        data = data.transform_keys(&:to_s) if data.is_a?(Hash)
-
-        chat = new(
-          completion_worker: string_to_worker(data["completion_worker"]),
-          error_worker: string_to_worker(data["error_worker"]),
-          model: data["model"],
-          provider: data["provider"],
-          api_base: data["api_base"]
-        )
-
-        chat.instance_variable_set(:@messages, deserialize_messages(data["messages"] || []))
-        chat.instance_variable_set(:@temperature, data["temperature"])
-        chat.instance_variable_set(:@thinking, data["thinking"])
-        chat.instance_variable_set(:@schema, data["schema"])
-        chat.instance_variable_set(:@params, data["params"] || {})
-        chat.instance_variable_set(:@headers, data["headers"] || {})
-
-        chat
+      def completion_path
+        @completion_path || provider_instance.send(:completion_url)
       end
 
       private
+
+      def deserialize_message_hash(message_hash)
+        role = message_hash[:role] || message_hash["role"]
+        content = message_hash[:content] || message_hash["content"]
+
+        unless role && content && role != "" && content != ""
+          raise ArgumentError.new("Message hash must have role and content; actual keys: #{message_hash.keys.join(", ")}")
+        end
+
+        {role: role.to_sym, content: content}
+      end
 
       def resolve_model_and_provider
         RubyLLM::Models.resolve(@model, provider: @provider, assume_exists: true)
@@ -273,52 +327,6 @@ module Sidekiq
         ).merge(params)
       end
 
-      def build_connection(provider_instance)
-        base_url = api_base || provider_instance.api_base
-        Faraday.new(url: base_url) do |f|
-          f.request :json
-          f.headers = provider_instance.headers.merge(headers)
-          f.adapter :sidekiq_async_http
-        end
-      end
-
-      def completion_path(provider_instance)
-        # Most providers use similar paths
-        case provider_instance.class.slug.to_s
-        when "anthropic"
-          "/v1/messages"
-        when "gemini"
-          "/v1beta/models/#{@model}:generateContent"
-        when "bedrock"
-          "/model/#{@model}/invoke"
-        else
-          # OpenAI and compatible APIs
-          "/v1/chat/completions"
-        end
-      end
-
-      def resolve_worker_class(worker)
-        case worker
-        when Class
-          worker
-        when String
-          Object.const_get(worker)
-        else
-          worker
-        end
-      end
-
-      def worker_to_string(worker)
-        case worker
-        when Class
-          worker.name
-        when String
-          worker
-        else
-          worker.to_s
-        end
-      end
-
       def serialize_message(message)
         {
           "role" => message[:role].to_s,
@@ -334,24 +342,6 @@ module Sidekiq
           obj.map { |v| deep_stringify_keys(v) }
         else
           obj
-        end
-      end
-
-      class << self
-        private
-
-        def string_to_worker(str)
-          return str if str.is_a?(Class)
-          Object.const_get(str)
-        end
-
-        def deserialize_messages(messages)
-          messages.map do |m|
-            {
-              role: m["role"].to_sym,
-              content: m["content"]
-            }
-          end
         end
       end
     end
