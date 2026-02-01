@@ -2,7 +2,17 @@
 
 require "bundler/setup"
 
+require "sidekiq/async_http"
 require_relative "../lib/sidekiq-async_llm"
+
+# Mock callback class for testing
+class TestCallback
+  def on_complete(chat, message, callback_args, response)
+  end
+
+  def on_error(chat, callback_args, error)
+  end
+end
 
 # Configure RubyLLM with fake API keys for testing
 RubyLLM.configure do |config|
@@ -10,7 +20,7 @@ RubyLLM.configure do |config|
   config.anthropic_api_key = "test-key"
 end
 
-Sidekiq.logger.level = Logger::ERROR
+Sidekiq.logger.level = Logger::ERROR if Sidekiq.respond_to?(:logger) && Sidekiq.logger
 
 RSpec.configure do |config|
   config.disable_monkey_patching!

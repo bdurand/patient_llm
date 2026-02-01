@@ -32,27 +32,17 @@ Sidekiq::AsyncHttp.configure do |config|
 end
 ```
 
-> [!NOTE]
-> If you are using [sidekiq-encrypted_args](https://github.com/bdurand/sidekiq-encrypted_args), you may need to reappend the middleware used to deserialize arguments for the workers.
+### Creating a Callback Class
+
+Create a callback class with `on_complete` and `on_error` methods:
 
 ```ruby
-Sidekiq::AsyncLLM.append_middleware
-```
-
-### Creating Callback Workers
-
-You need to create two Sidekiq workers: one for handling successful completions and one for handling errors.
-
-**Completion Worker:**
-
-```ruby
-class LLMCompletionWorker
-  include Sidekiq::Job
-
-  def perform(response, chat, message)
-    # response - the raw async HTTP response with timing info
-    # chat     - a Sidekiq::AsyncLLM::Chat instance (deserialized)
-    # message  - a RubyLLM::Message with the assistant's response
+class LLMCallback
+  def on_complete(chat, message, callback_args, response)
+    # chat          - the Sidekiq::AsyncLLM::Chat instance
+    # message       - a RubyLLM::Message with the assistant's response
+    # callback_args - a Sidekiq::AsyncHttp::CallbackArgs containing your custom data
+    # response      - the raw Sidekiq::AsyncHttp::Response with timing info
 
     # Add the response to the conversation for multi-turn chats
     chat.add_message(message)
@@ -62,19 +52,14 @@ class LLMCompletionWorker
     puts "Tokens: #{message.input_tokens} in / #{message.output_tokens} out"
     puts "Duration: #{response.duration}s"
 
+    # Access your custom callback args
+    user_id = callback_args[:user_id]
+
     # Save the chat state for future turns
-    save_chat_state(chat.as_json)
+    save_chat_state(user_id, chat.as_json)
   end
-end
-```
 
-**Error Worker:**
-
-```ruby
-class LLMErrorWorker
-  include Sidekiq::Job
-
-  def perform(error, chat)
+  def on_error(chat, callback_args, error)
     # error - contains error_type, message, and error_class
     # chat  - the Chat instance for context
 
@@ -88,19 +73,28 @@ end
 Create a `Chat` instance and call `ask` to make an async request:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
+chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
 chat.with_instructions("You are a helpful assistant.")
 chat.ask("What is the capital of France?")
 ```
 
-The request is sent asynchronously. When the LLM responds, your `LLMCompletionWorker` will be called with the result.
+You can pass custom data to your callback using `callback_args`:
+
+```ruby
+chat.ask("Hello!", callback_args: {
+  user_id: current_user.id,
+  conversation_id: conversation.id
+})
+```
+
+The request is sent asynchronously. When the LLM responds, your callback's `on_complete` method will be called with the result.
 
 ### Chat Configuration Options
 
 The `Chat` class supports various configuration methods:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
+chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
 
 # Set the model
 chat.with_model("gpt-4o", provider: :openai)
@@ -136,20 +130,20 @@ Conversations can be serialized to JSON for storage and later restored:
 
 ```ruby
 # Initial request
-chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
+chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
 chat.with_instructions("You are a helpful assistant.")
-chat.ask("Hello!")
+chat.ask("Hello!", callback_args: { conversation_id: conversation.id })
 
-# In your completion worker, save the state:
-def perform(response, chat, message)
+# In your callback, save the state:
+def on_complete(chat, message, callback_args, response)
   chat.add_message(message)
-  save_to_database(chat.as_json)  # Store as JSON
+  save_to_database(callback_args[:conversation_id], chat.as_json)
 end
 
 # Later, restore and continue:
-chat_data = load_from_database
+chat_data = load_from_database(conversation_id)
 chat = Sidekiq::AsyncLLM::Chat.load(chat_data)
-chat.ask("Tell me more about that.")
+chat.ask("Tell me more about that.", callback_args: { conversation_id: conversation_id })
 ```
 
 ## Installation

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "ruby_llm"
-require "faraday/sidekiq_async_http"
 
 require_relative "async_llm/chat"
 require_relative "async_llm/callback"

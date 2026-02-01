@@ -15,7 +15,6 @@ module Sidekiq::AsyncLLM
       provider_instance = lookup_provider_instance(model_id, provider_slug)
 
       # Parse the response using the provider (method is private)
-      puts faraday_response.inspect
       message = provider_instance.send(:parse_completion_response, faraday_response)
 
       callback = chat_callback(callback_args)
@@ -52,8 +51,8 @@ module Sidekiq::AsyncLLM
     end
 
     def chat_callback(callback_args)
-      classback_class = Sidekiq::AsyncHttp::ClassHelper.resolve_class_name(callback_args[:chat_callback])
-      classback_class.new
+      callback_class = Sidekiq::AsyncHttp::ClassHelper.resolve_class_name(callback_args[:chat_callback])
+      callback_class.new
     end
 
     def chat_callback_args(callback_args)

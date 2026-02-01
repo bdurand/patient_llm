@@ -5,20 +5,15 @@ require "spec_helper"
 RSpec.describe Sidekiq::AsyncLLM::Chat do
   let(:chat) do
     described_class.new(
-      completion_worker: TestCompletionWorker,
-      error_worker: TestErrorWorker,
+      callback: TestCallback,
       model: "gpt-4",
       provider: "openai"
     )
   end
 
   describe "#initialize" do
-    it "sets the completion_worker" do
-      expect(chat.completion_worker).to eq(TestCompletionWorker)
-    end
-
-    it "sets the error_worker" do
-      expect(chat.error_worker).to eq(TestErrorWorker)
+    it "sets the callback" do
+      expect(chat.callback).to eq(TestCallback)
     end
 
     it "sets the model" do
@@ -31,6 +26,21 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
 
     it "initializes with empty messages" do
       expect(chat.messages).to eq([])
+    end
+
+    it "preserves temperature when passed" do
+      chat = described_class.new(callback: TestCallback, temperature: 0.7)
+      expect(chat.temperature).to eq(0.7)
+    end
+
+    it "preserves thinking_effort when passed" do
+      chat = described_class.new(callback: TestCallback, thinking_effort: "high")
+      expect(chat.thinking_effort).to eq("high")
+    end
+
+    it "preserves thinking_budget when passed" do
+      chat = described_class.new(callback: TestCallback, thinking_budget: 10000)
+      expect(chat.thinking_budget).to eq(10000)
     end
   end
 
@@ -114,12 +124,12 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
   describe "#with_thinking" do
     it "sets thinking with effort" do
       chat.with_thinking(effort: "high")
-      expect(chat.thinking).to eq({effort: "high"})
+      expect(chat.thinking).to eq({effort: "high", budget: nil})
     end
 
     it "sets thinking with budget" do
       chat.with_thinking(budget: 10000)
-      expect(chat.thinking).to eq({budget: 10000})
+      expect(chat.thinking).to eq({effort: nil, budget: 10000})
     end
 
     it "sets thinking with both" do
@@ -129,6 +139,18 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
 
     it "returns self for chaining" do
       expect(chat.with_thinking(effort: "low")).to eq(chat)
+    end
+  end
+
+  describe "#without_thinking" do
+    it "clears thinking configuration" do
+      chat.with_thinking(effort: "high", budget: 10000)
+      chat.without_thinking
+      expect(chat.thinking).to be_nil
+    end
+
+    it "returns self for chaining" do
+      expect(chat.without_thinking).to eq(chat)
     end
   end
 
@@ -222,8 +244,7 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
     it "serializes to a hash" do
       json = chat.as_json
       expect(json["v"]).to eq(Sidekiq::AsyncLLM::Chat::SERIALIZATION_VERSION)
-      expect(json["completion_worker"]).to eq("TestCompletionWorker")
-      expect(json["error_worker"]).to eq("TestErrorWorker")
+      expect(json["callback"]).to eq("TestCallback")
       expect(json["model"]).to eq("gpt-4")
       expect(json["provider"]).to eq("openai")
       expect(json["messages"]).to eq([
@@ -231,7 +252,8 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
         {"role" => "user", "content" => "Hello"}
       ])
       expect(json["temperature"]).to eq(0.8)
-      expect(json["thinking"]).to eq({"effort" => "high"})
+      expect(json["thinking_effort"]).to eq("high")
+      expect(json["thinking_budget"]).to be_nil
       expect(json["schema"]).to eq({"type" => "object"})
       expect(json["params"]).to eq({"top_p" => 0.9})
       expect(json["headers"]).to eq({"X-Custom" => "value"})
@@ -246,8 +268,7 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
     let(:serialized) do
       {
         "v" => 1,
-        "completion_worker" => "TestCompletionWorker",
-        "error_worker" => "TestErrorWorker",
+        "callback" => "TestCallback",
         "model" => "gpt-4",
         "provider" => "openai",
         "messages" => [
@@ -255,7 +276,8 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
           {"role" => "user", "content" => "Hello"}
         ],
         "temperature" => 0.8,
-        "thinking" => {"effort" => "high"},
+        "thinking_effort" => "high",
+        "thinking_budget" => nil,
         "schema" => {"type" => "object"},
         "params" => {"top_p" => 0.9},
         "headers" => {"X-Custom" => "value"}
@@ -264,8 +286,7 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
 
     it "deserializes a chat" do
       loaded = described_class.load(serialized)
-      expect(loaded.completion_worker).to eq(TestCompletionWorker)
-      expect(loaded.error_worker).to eq(TestErrorWorker)
+      expect(loaded.callback).to eq("TestCallback")
       expect(loaded.model).to eq("gpt-4")
       expect(loaded.provider).to eq("openai")
       expect(loaded.messages).to eq([
@@ -273,7 +294,7 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
         {role: :user, content: "Hello"}
       ])
       expect(loaded.temperature).to eq(0.8)
-      expect(loaded.thinking).to eq({"effort" => "high"})
+      expect(loaded.thinking).to eq({effort: "high", budget: nil})
       expect(loaded.schema).to eq({"type" => "object"})
       expect(loaded.params).to eq({"top_p" => 0.9})
       expect(loaded.headers).to eq({"X-Custom" => "value"})
