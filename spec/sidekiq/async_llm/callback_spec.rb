@@ -27,20 +27,20 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
   describe "#on_complete" do
     let(:response) do
-      instance_double(
-        Sidekiq::AsyncHttp::Response,
+      AsyncHttpPool::Response.new(
         callback_args: callback_args,
         http_method: :post,
         url: "https://api.openai.com/v1/chat/completions",
         status: 200,
         headers: {"content-type" => "application/json"},
-        json?: true,
-        json: {
+        body: JSON.generate({
           "choices" => [
             {"message" => {"role" => "assistant", "content" => "Hello! How can I help?"}}
           ],
           "usage" => {"prompt_tokens" => 10, "completion_tokens" => 8}
-        }
+        }),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
       )
     end
 
@@ -62,10 +62,6 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       allow(provider_instance).to receive(:send)
         .with(:parse_completion_response, instance_of(Faraday::Response))
         .and_return(mock_message)
-
-      allow(Sidekiq::AsyncHttp::ClassHelper).to receive(:resolve_class_name)
-        .with("TestCallback")
-        .and_return(TestCallback)
 
       allow(TestCallback).to receive(:new).and_return(test_callback_instance)
       allow(test_callback_instance).to receive(:on_complete)
@@ -95,7 +91,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
         .with(
           instance_of(Sidekiq::AsyncLLM::Chat),
           mock_message,
-          instance_of(Sidekiq::AsyncHttp::CallbackArgs),
+          instance_of(AsyncHttpPool::CallbackArgs),
           response
         )
     end
@@ -112,7 +108,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
   describe "#on_error" do
     let(:error) do
       instance_double(
-        Sidekiq::AsyncHttp::Error,
+        AsyncHttpPool::Error,
         callback_args: callback_args,
         error_type: :http_error,
         message: "Connection failed"
@@ -122,7 +118,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
     let(:test_callback_instance) { TestCallback.new }
 
     before do
-      allow(Sidekiq::AsyncHttp::ClassHelper).to receive(:resolve_class_name)
+      allow(AsyncHttpPool::ClassHelper).to receive(:resolve_class_name)
         .with("TestCallback")
         .and_return(TestCallback)
 
@@ -145,7 +141,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       expect(test_callback_instance).to have_received(:on_error)
         .with(
           instance_of(Sidekiq::AsyncLLM::Chat),
-          instance_of(Sidekiq::AsyncHttp::CallbackArgs),
+          instance_of(AsyncHttpPool::CallbackArgs),
           error
         )
     end
@@ -161,14 +157,14 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
   describe "#to_faraday_response (private)" do
     let(:response) do
-      instance_double(
-        Sidekiq::AsyncHttp::Response,
+      AsyncHttpPool::Response.new(
         http_method: :post,
         url: "https://api.openai.com/v1/chat/completions",
         status: 200,
         headers: {"content-type" => "application/json"},
-        json?: true,
-        json: {"choices" => []}
+        body: JSON.generate({"choices" => []}),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
       )
     end
 
@@ -195,7 +191,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       custom_args = {"user_id" => "123", "session_id" => "abc"}
       args = callback.send(:chat_callback_args, {custom: custom_args})
 
-      expect(args).to be_a(Sidekiq::AsyncHttp::CallbackArgs)
+      expect(args).to be_a(AsyncHttpPool::CallbackArgs)
       expect(args[:user_id]).to eq("123")
       expect(args[:session_id]).to eq("abc")
     end

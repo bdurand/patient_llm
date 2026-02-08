@@ -2,7 +2,6 @@
 
 require "bundler/setup"
 
-require "sidekiq/async_http"
 require_relative "../lib/sidekiq-async_llm"
 
 # Mock callback class for testing

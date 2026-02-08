@@ -1,6 +1,7 @@
 source "https://rubygems.org"
 
 gem "sidekiq-async_http", github: "bdurand/sidekiq-async_http", branch: "main"
+gem "async_http_pool", github: "bdurand/async_http_pool", branch: "main"
 gem "sidekiq-async_llm", path: ".."
 
 gem "async"

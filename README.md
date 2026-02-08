@@ -41,8 +41,8 @@ class LLMCallback
   def on_complete(chat, message, callback_args, response)
     # chat          - the Sidekiq::AsyncLLM::Chat instance
     # message       - a RubyLLM::Message with the assistant's response
-    # callback_args - a Sidekiq::AsyncHttp::CallbackArgs containing your custom data
-    # response      - the raw Sidekiq::AsyncHttp::Response with timing info
+    # callback_args - a AsyncHttpPool::CallbackArgs containing your custom data
+    # response      - the raw AsyncHttpPool::Response with timing info
 
     # Add the response to the conversation for multi-turn chats
     chat.add_message(message)
