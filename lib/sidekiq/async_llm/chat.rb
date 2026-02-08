@@ -70,29 +70,22 @@ module Sidekiq
         params: nil,
         headers: nil
       )
-        # TODO : validate callback class
         @callback = callback
         @model = model
         @provider = provider&.to_s
         @api_base = api_base
         @completion_path = completion_path
         @messages = []
-        @temperature = nil
-        @thinking_effort = nil
-        @thinking_budget = nil
+        @temperature = temperature
+        @thinking_effort = thinking_effort&.to_s
+        @thinking_budget = thinking_budget
         @schema = nil
-        @params = {}
-        @headers = {}
+        @params = params || {}
+        @headers = headers || {}
 
         with_instructions(instructions) if instructions
         add_messages(messages) if messages
-        with_temperature(temperature) if temperature
-        if thinking_effort || thinking_budget
-          with_thinking(effort: thinking_effort, budget: thinking_budget)
-        end
         with_schema(schema) if schema
-        with_params(params) if params
-        with_headers(headers) if headers
       end
 
       # Set system instructions.
@@ -239,7 +232,7 @@ module Sidekiq
       #
       # @param message [String, nil] Optional message to add before asking
       # @param callback_args [Hash] Custom arguments to pass to callback workers
-      # @return [Faraday::Response] Placeholder response (202 Accepted)
+      # @return [String] Request id that will be used when making the request
       def ask(message = nil, callback_args: {})
         add_message(role: :user, content: message) if message
 
@@ -287,8 +280,15 @@ module Sidekiq
 
       alias_method :dump, :as_json
 
+      # Get the URL path for the chat completion endpoint. Defaults to the endpoint
+      # defined by the provider if not explicitly set.
+      #
+      # @return [String, nil]
       def completion_path
-        @completion_path || provider_instance.send(:completion_url)
+        return @completion_path if @completion_path
+
+        _model, provider_instance = resolve_model_and_provider
+        provider_instance&.send(:completion_url)
       end
 
       private
@@ -304,6 +304,9 @@ module Sidekiq
         {role: role.to_sym, content: content}
       end
 
+      # Return the resolved model and provider instance.
+      #
+      # @return [Array(RubyLLM::Model, RubyLLM::Provider)]
       def resolve_model_and_provider
         RubyLLM::Models.resolve(@model, provider: @provider, assume_exists: true)
       end

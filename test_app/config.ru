@@ -11,16 +11,20 @@ map "/styles.css" do
   run StylesAction.new
 end
 
+map "/markdown.js" do
+  run ScriptsAction.new("markdown.js")
+end
+
+map "/app.js" do
+  run ScriptsAction.new("app.js")
+end
+
 map "/chat" do
   run ChatAction.new
 end
 
 map "/result" do
   run ResultAction.new
-end
-
-map "/reset" do
-  run ResetAction.new
 end
 
 # Sidekiq Web UI

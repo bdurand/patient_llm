@@ -64,9 +64,9 @@ class ChatAction
       chat.with_params(max_tokens: params["max_tokens"].to_i)
     end
 
-    chat.ask(user_message)
+    request_id = chat.ask(user_message)
 
-    [202, {"content-type" => "application/json"}, [{status: "accepted"}.to_json]]
+    [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]
   rescue JSON::ParserError => e
     [400, {"content-type" => "application/json"}, [{error: "Invalid JSON: #{e.message}"}.to_json]]
   end

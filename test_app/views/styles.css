@@ -73,41 +73,111 @@ header h1 {
 }
 
 .message {
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  max-width: 85%;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  max-width: 80%;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.message-role {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  opacity: 0.7;
 }
 
 .message.user {
-  background: #3d5a80;
+  background: linear-gradient(135deg, #4a7c9b 0%, #3d5a80 100%);
   margin-left: auto;
   border-bottom-right-radius: 4px;
 }
 
+.message.user::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-left-color: #3d5a80;
+  border-bottom: 0;
+  border-right: 0;
+}
+
+.message.user .message-role {
+  text-align: right;
+  color: #b8d4e8;
+}
+
 .message.assistant {
-  background: #1e3a5f;
+  background: linear-gradient(135deg, #2a4a6f 0%, #1e3a5f 100%);
   margin-right: auto;
   border-bottom-left-radius: 4px;
 }
 
+.message.assistant::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-right-color: #2a4a6f;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.message.assistant .message-role {
+  color: #8ab4d6;
+}
+
 .message.error {
-  background: #5a1a1a;
+  background: linear-gradient(135deg, #6a2020 0%, #5a1a1a 100%);
   margin-right: auto;
   border-bottom-left-radius: 4px;
   color: #ff8a8a;
 }
 
+.message.error::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-right-color: #5a1a1a;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.message.error .message-role {
+  color: #ff9999;
+}
+
 .message-content {
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
 
 .message-tokens {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: #888;
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message.assistant .message-tokens,
+.message.error .message-tokens {
+  color: #a8a8a8;
 }
 
 .message.pending {
@@ -338,4 +408,111 @@ header h1 {
   .chat-panel {
     height: 60vh;
   }
+}
+
+/* Markdown Styles */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5 {
+  margin: 0.5em 0 0.3em 0;
+  color: #fff;
+}
+
+.message-content h1 { font-size: 1.4em; }
+.message-content h2 { font-size: 1.25em; }
+.message-content h3 { font-size: 1.1em; }
+.message-content h4 { font-size: 1em; }
+.message-content h5 { font-size: 0.9em; }
+
+.message-content pre {
+  background: #0d1117;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.message-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.message-content code {
+  background: #0d1117;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 0.9em;
+}
+
+.message-content strong {
+  color: #fff;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.message-content blockquote {
+  border-left: 3px solid #64b5f6;
+  padding-left: 12px;
+  margin: 0.5em 0;
+  color: #aaa;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.message-content li {
+  margin: 0.25em 0;
+}
+
+.message-content hr {
+  border: none;
+  border-top: 1px solid #444;
+  margin: 1em 0;
+}
+
+.message-content a {
+  color: #64b5f6;
+  text-decoration: none;
+}
+
+.message-content a:hover {
+  text-decoration: underline;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+  font-size: 0.9em;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid #444;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.message-content th {
+  background: #0d1117;
+  color: #fff;
+  font-weight: 600;
+}
+
+.message-content tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.2);
 }

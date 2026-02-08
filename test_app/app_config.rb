@@ -3,7 +3,7 @@
 class AppConfig
   class << self
     def redis_url
-      ENV.fetch("REDIS_URL", "redis://localhost:24456/1")
+      ENV.fetch("REDIS_URL", "redis://localhost:23450/1")
     end
 
     def max_connections

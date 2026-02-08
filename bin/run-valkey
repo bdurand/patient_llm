@@ -6,11 +6,11 @@ set -euo pipefail
 #
 # Behavior:
 # - Prefer `container` if present, otherwise `docker`.
-# - Forward `VALKEY_PORT` if set (default 24455) to container port 6379.
+# - Forward `VALKEY_PORT` if set (default 23450) to container port 6379.
 # - Pass VALKEY_EXTRA_FLAGS as an environment variable to the container.
 # - Print the exact command before running for transparency.
 
-: "${VALKEY_PORT:=24456}"
+: "${VALKEY_PORT:=23450}"
 : "${VALKEY_IMAGE:=docker.io/valkey/valkey:9.0.1-alpine}"
 : "${VALKEY_EXTRA_FLAGS:=--loglevel warning --maxmemory 30m --maxmemory-policy allkeys-lru --databases 10}"
 
