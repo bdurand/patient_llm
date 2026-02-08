@@ -73,41 +73,111 @@ header h1 {
 }
 
 .message {
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  max-width: 85%;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border-radius: 18px;
+  max-width: 80%;
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.message-role {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  opacity: 0.7;
 }
 
 .message.user {
-  background: #3d5a80;
+  background: linear-gradient(135deg, #4a7c9b 0%, #3d5a80 100%);
   margin-left: auto;
   border-bottom-right-radius: 4px;
 }
 
+.message.user::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-left-color: #3d5a80;
+  border-bottom: 0;
+  border-right: 0;
+}
+
+.message.user .message-role {
+  text-align: right;
+  color: #b8d4e8;
+}
+
 .message.assistant {
-  background: #1e3a5f;
+  background: linear-gradient(135deg, #2a4a6f 0%, #1e3a5f 100%);
   margin-right: auto;
   border-bottom-left-radius: 4px;
 }
 
+.message.assistant::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-right-color: #2a4a6f;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.message.assistant .message-role {
+  color: #8ab4d6;
+}
+
 .message.error {
-  background: #5a1a1a;
+  background: linear-gradient(135deg, #6a2020 0%, #5a1a1a 100%);
   margin-right: auto;
   border-bottom-left-radius: 4px;
   color: #ff8a8a;
 }
 
+.message.error::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -10px;
+  width: 0;
+  height: 0;
+  border: 12px solid transparent;
+  border-right-color: #5a1a1a;
+  border-bottom: 0;
+  border-left: 0;
+}
+
+.message.error .message-role {
+  color: #ff9999;
+}
+
 .message-content {
-  line-height: 1.5;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
 }
 
 .message-tokens {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: #888;
-  margin-top: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.message.assistant .message-tokens,
+.message.error .message-tokens {
+  color: #a8a8a8;
 }
 
 .message.pending {

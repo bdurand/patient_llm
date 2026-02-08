@@ -50,7 +50,8 @@ function addMessage(role, content, meta = null) {
     ? Markdown.render(content)
     : Markdown.escapeHtml(content).replace(/\n/g, '<br>');
 
-  let html = `<div class="message-content">${renderedContent}</div>`;
+  const roleLabel = role === 'user' ? 'You' : (role === 'error' ? 'Error' : 'Assistant');
+  let html = `<div class="message-role">${roleLabel}</div><div class="message-content">${renderedContent}</div>`;
   if (meta) {
     let metaText = `Tokens: ${meta.input || 0} in / ${meta.output || 0} out`;
     if (meta.duration) {
@@ -88,6 +89,7 @@ function addPendingMessage() {
   pendingMessageEl = document.createElement('div');
   pendingMessageEl.className = 'message assistant pending';
   pendingMessageEl.innerHTML = `
+    <div class="message-role">Assistant</div>
     <div class="message-content">
       <div class="typing-indicator">
         <span></span><span></span><span></span>
