@@ -27,10 +27,6 @@ map "/result" do
   run ResultAction.new
 end
 
-map "/reset" do
-  run ResetAction.new
-end
-
 # Sidekiq Web UI
 map "/sidekiq" do
   session_secret = begin

@@ -232,7 +232,7 @@ module Sidekiq
       #
       # @param message [String, nil] Optional message to add before asking
       # @param callback_args [Hash] Custom arguments to pass to callback workers
-      # @return [Faraday::Response] Placeholder response (202 Accepted)
+      # @return [String] Request id that will be used when making the request
       def ask(message = nil, callback_args: {})
         add_message(role: :user, content: message) if message
 

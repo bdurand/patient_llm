@@ -1,6 +1,12 @@
 # frozen_string_literal: true
 
 class LLMCallback
+  # Handle successful completion of an LLM request
+  #
+  # @param chat [Sidekiq::AsyncLLM::Chat] the chat instance
+  # @param message [Sidekiq::AsyncLLM::Message] the response message
+  # @param callback_args [Array] additional callback arguments
+  # @param response [Sidekiq::AsyncLLM::Response] the response object
   def on_complete(chat, message, callback_args, response)
     # Add the assistant's response to the chat
     chat.add_message(message) if message
@@ -20,11 +26,16 @@ class LLMCallback
       timestamp: Time.now.iso8601
     }
 
-    ChatService.set_result(result)
+    ChatService.set_result(response.request_id, result)
 
     Sidekiq.logger.info("LLM completion stored: #{message.content&.slice(0, 100)}...")
   end
 
+  # Handle errors during an LLM request
+  #
+  # @param chat [Sidekiq::AsyncLLM::Chat] the chat instance
+  # @param callback_args [Array] additional callback arguments
+  # @param error [Sidekiq::AsyncLLM::Error] the error object
   def on_error(chat, callback_args, error)
     # Build error result payload
     result = {
@@ -38,7 +49,7 @@ class LLMCallback
       timestamp: Time.now.iso8601
     }
 
-    ChatService.set_result(result)
+    ChatService.set_result(error.request_id, result)
     Sidekiq.logger.error("LLM error: #{error.error_type} - #{error.message}")
   end
 end

@@ -2,8 +2,7 @@
 
 // State
 let chatState = null;
-let pollInterval = null;
-let pendingMessageEl = null;
+const pendingRequests = new Map(); // Map of request_id -> {pollInterval, messageEl}
 
 // DOM elements
 const messagesEl = document.getElementById('messages');
@@ -81,13 +80,14 @@ function getSettings() {
 }
 
 // Add pending message placeholder
-function addPendingMessage() {
+function addPendingMessage(requestId) {
   // Remove empty state if present
   const emptyState = messagesEl.querySelector('.empty-state');
   if (emptyState) emptyState.remove();
 
-  pendingMessageEl = document.createElement('div');
+  const pendingMessageEl = document.createElement('div');
   pendingMessageEl.className = 'message assistant pending';
+  pendingMessageEl.dataset.requestId = requestId;
   pendingMessageEl.innerHTML = `
     <div class="message-role">Assistant</div>
     <div class="message-content">
@@ -98,13 +98,15 @@ function addPendingMessage() {
   `;
   messagesEl.appendChild(pendingMessageEl);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+
+  return pendingMessageEl;
 }
 
 // Remove pending message placeholder
-function removePendingMessage() {
-  if (pendingMessageEl) {
-    pendingMessageEl.remove();
-    pendingMessageEl = null;
+function removePendingMessage(requestId) {
+  const messageEl = document.querySelector(`[data-request-id="${requestId}"]`);
+  if (messageEl) {
+    messageEl.remove();
   }
 }
 
@@ -112,9 +114,6 @@ function removePendingMessage() {
 async function sendMessage(message) {
   // Add user message to UI
   addMessage('user', message);
-
-  // Add pending placeholder
-  addPendingMessage();
 
   const settings = getSettings();
   const payload = {
@@ -135,66 +134,99 @@ async function sendMessage(message) {
       throw new Error(error.error || 'Request failed');
     }
 
-    // Start polling for result
-    startPolling();
+    const result = await response.json();
+    const requestId = result.request_id;
+
+    // Add pending placeholder
+    const messageEl = addPendingMessage(requestId);
+
+    // Start polling for this specific request
+    startPolling(requestId, messageEl);
   } catch (error) {
-    removePendingMessage();
     showToast(error.message, 'error');
   }
 }
 
 // Poll for result
-function startPolling() {
-  if (pollInterval) clearInterval(pollInterval);
-
-  pollInterval = setInterval(async () => {
+function startPolling(requestId, messageEl) {
+  const pollInterval = setInterval(async () => {
     try {
-      const response = await fetch('/result');
+      const response = await fetch(`/result?request_id=${encodeURIComponent(requestId)}`);
 
       if (response.status === 200) {
         const result = await response.json();
-        stopPolling();
-        handleResult(result);
+        handleResult(requestId, result);
+        stopPolling(requestId);
+      } else if (response.status === 400) {
+        // Invalid request_id
+        const error = await response.json();
+        stopPolling(requestId);
+        showToast(error.error || 'Invalid request', 'error');
       }
       // 204 = no result yet, keep polling
     } catch (error) {
       console.error('Poll error:', error);
     }
   }, 500);
+
+  pendingRequests.set(requestId, { pollInterval, messageEl });
 }
 
 // Stop polling
-function stopPolling() {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
+function stopPolling(requestId) {
+  const pending = pendingRequests.get(requestId);
+  if (pending) {
+    clearInterval(pending.pollInterval);
+    pendingRequests.delete(requestId);
   }
-  removePendingMessage();
 }
 
 // Handle result
-function handleResult(result) {
-  if (result.success) {
-    addMessage('assistant', result.message.content, {
-      input: result.message.input_tokens,
-      output: result.message.output_tokens,
-      duration: result.message.duration
-    });
-    chatState = result.chat;
-    showToast('Response received', 'success');
-  } else {
-    addMessage('error', `Error: ${result.error.type} - ${result.error.message}`);
-    showToast(`Error: ${result.error.message}`, 'error');
+function handleResult(requestId, result) {
+  const pending = pendingRequests.get(requestId);
+  const messageEl = pending?.messageEl;
+
+  if (messageEl) {
+    // Replace the pending placeholder with actual content
+    if (result.success) {
+      const renderedContent = Markdown.render(result.message.content);
+      let metaText = `Tokens: ${result.message.input_tokens || 0} in / ${result.message.output_tokens || 0} out`;
+      if (result.message.duration) {
+        metaText += ` | ${result.message.duration}s`;
+      }
+
+      messageEl.className = 'message assistant';
+      messageEl.innerHTML = `
+        <div class="message-role">Assistant</div>
+        <div class="message-content">${renderedContent}</div>
+        <div class="message-tokens">${metaText}</div>
+      `;
+      chatState = result.chat;
+      showToast('Response received', 'success');
+    } else {
+      const errorContent = Markdown.escapeHtml(`Error: ${result.error.type} - ${result.error.message}`).replace(/\n/g, '<br>');
+      messageEl.className = 'message error';
+      messageEl.innerHTML = `
+        <div class="message-role">Error</div>
+        <div class="message-content">${errorContent}</div>
+      `;
+      showToast(`Error: ${result.error.message}`, 'error');
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 }
 
 // Reset conversation
 function resetConversation() {
   chatState = null;
-  pendingMessageEl = null;
-  stopPolling();
+
+  // Stop all pending polls
+  for (const [requestId, _] of pendingRequests) {
+    stopPolling(requestId);
+  }
+  pendingRequests.clear();
+
   messagesEl.innerHTML = '<div class="empty-state">Start a conversation by typing a message below.</div>';
-  fetch('/reset');
   showToast('Conversation reset', 'info');
 }
 
