@@ -10,3 +10,4 @@ gem "yard"
 
 # Local development dependencies
 gem "sidekiq-async_http", github: "bdurand/sidekiq-async_http", branch: "main"
+gem "async_http_pool", github: "bdurand/async_http_pool", branch: "main"
