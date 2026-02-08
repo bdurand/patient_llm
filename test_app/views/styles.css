@@ -339,3 +339,110 @@ header h1 {
     height: 60vh;
   }
 }
+
+/* Markdown Styles */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5 {
+  margin: 0.5em 0 0.3em 0;
+  color: #fff;
+}
+
+.message-content h1 { font-size: 1.4em; }
+.message-content h2 { font-size: 1.25em; }
+.message-content h3 { font-size: 1.1em; }
+.message-content h4 { font-size: 1em; }
+.message-content h5 { font-size: 0.9em; }
+
+.message-content pre {
+  background: #0d1117;
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.message-content pre code {
+  background: transparent;
+  padding: 0;
+  font-size: 0.9em;
+}
+
+.message-content code {
+  background: #0d1117;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-size: 0.9em;
+}
+
+.message-content strong {
+  color: #fff;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.message-content blockquote {
+  border-left: 3px solid #64b5f6;
+  padding-left: 12px;
+  margin: 0.5em 0;
+  color: #aaa;
+}
+
+.message-content ul,
+.message-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.message-content li {
+  margin: 0.25em 0;
+}
+
+.message-content hr {
+  border: none;
+  border-top: 1px solid #444;
+  margin: 1em 0;
+}
+
+.message-content a {
+  color: #64b5f6;
+  text-decoration: none;
+}
+
+.message-content a:hover {
+  text-decoration: underline;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+  font-size: 0.9em;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid #444;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.message-content th {
+  background: #0d1117;
+  color: #fff;
+  font-weight: 600;
+}
+
+.message-content tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.2);
+}
