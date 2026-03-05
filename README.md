@@ -124,6 +124,109 @@ chat.with_headers("X-Custom-Header" => "value")
 chat.with_api_base("http://localhost:1234/v1")
 ```
 
+### Tool Calling
+
+Tools let the LLM invoke your Ruby code during a conversation. When the LLM responds with tool calls, the gem automatically executes them, appends the results, and re-asks the LLM — all asynchronously. The loop continues until the LLM returns a text response.
+
+#### Defining a Tool
+
+Tools are [RubyLLM::Tool](https://github.com/crmne/ruby_llm) subclasses:
+
+```ruby
+class WeatherTool < RubyLLM::Tool
+  description "Gets the current weather for a city"
+
+  param :city, desc: "City name"
+
+  def execute(city:)
+    # Call a weather API, query a database, etc.
+    "72°F and sunny in #{city}"
+  end
+end
+```
+
+#### Registering Tools
+
+Register tools on the chat before calling `ask`:
+
+```ruby
+chat = PatientHttp::LLM::Chat.new(callback: LLMCallback)
+chat.with_tool(WeatherTool)
+chat.ask("What's the weather in San Francisco?")
+```
+
+You can register multiple tools at once:
+
+```ruby
+chat.with_tools(WeatherTool, CalculatorTool, SearchTool)
+```
+
+When the LLM responds with tool calls, the gem handles everything automatically:
+
+1. Executes each tool call
+2. Appends the results as tool messages
+3. Re-asks the LLM asynchronously
+4. Repeats until the LLM returns a final text response
+
+Your `on_complete` callback is only invoked once the LLM produces a text response (no more tool calls).
+
+#### Halting the Tool Loop
+
+A tool can stop the loop early by calling `halt`:
+
+```ruby
+class SafetyCheckTool < RubyLLM::Tool
+  description "Checks if a request is safe to proceed"
+
+  param :request, desc: "The request to check"
+
+  def execute(request:)
+    if unsafe?(request)
+      halt("I cannot proceed with this request.")
+    else
+      "Request is safe to proceed."
+    end
+  end
+end
+```
+
+When a tool returns `halt(...)`, the loop stops immediately and `on_complete` is called with the halt message.
+
+#### Iteration Limit
+
+To prevent runaway loops, the gem enforces a maximum number of tool iterations (default: 25). If the limit is exceeded, `on_error` is called with a `PatientHttp::LLM::ToolIterationLimitError`.
+
+```ruby
+# Customize the limit
+chat.with_max_tool_iterations(10)
+```
+
+#### Callbacks with Tools
+
+Your callback class works the same whether tools are involved or not. The `on_complete` callback receives the final text response after all tool calls have been resolved:
+
+```ruby
+class LLMCallback
+  def on_complete(chat, message, callback_args, response)
+    # message.content contains the LLM's final text response
+    # chat.messages includes the full conversation history
+    # (user message, tool calls, tool results, final response, etc.)
+    chat.add_message(message)
+    save_to_database(callback_args[:conversation_id], chat.as_json)
+  end
+
+  def on_error(chat, callback_args, error)
+    case error.error_type
+    when :tool_iteration_limit
+      # Tool loop exceeded max iterations
+      log_error("Tool loop limit reached", error.message)
+    else
+      log_error(error.error_type, error.message)
+    end
+  end
+end
+```
+
 ### Serializing Conversations
 
 Conversations can be serialized to JSON for storage and later restored:

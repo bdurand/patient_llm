@@ -12,6 +12,11 @@ module PatientHttp
     #   chat.add_message(role: :user, content: "Hello!")
     #   chat.ask
     #
+    # @example With tools
+    #   chat = PatientHttp::LLM::Chat.new(callback: ChatCallback)
+    #   chat.with_tool(WeatherTool)
+    #   chat.ask("What's the weather in SF?")
+    #
     # @example With serialization for multi-turn conversations
     #   # In completion worker:
     #   def perform(chat, response)
@@ -20,6 +25,7 @@ module PatientHttp
     #   end
     class Chat
       SERIALIZATION_VERSION = 1
+      DEFAULT_MAX_TOOL_ITERATIONS = 25
 
       class << self
         # Deserialize a chat from a JSON hash.
@@ -41,13 +47,30 @@ module PatientHttp
             schema: data["schema"],
             params: data["params"],
             headers: data["headers"],
-            messages: data["messages"]
+            messages: data["messages"],
+            tools: deserialize_tools(data["tools"]),
+            max_tool_iterations: data["max_tool_iterations"]
           )
+        end
+
+        private
+
+        # Resolve an array of tool class name strings into tool instances.
+        #
+        # @param tool_names [Array<String>, nil] Tool class names
+        # @return [Array<RubyLLM::Tool>, nil]
+        def deserialize_tools(tool_names)
+          return nil if tool_names.nil? || tool_names.empty?
+
+          tool_names.map do |name|
+            klass = PatientHttp::ClassHelper.resolve_class_name(name)
+            klass.new
+          end
         end
       end
 
       attr_reader :messages, :model, :provider, :temperature, :thinking_effort, :thinking_budget,
-        :schema, :params, :headers, :callback, :api_base
+        :schema, :params, :headers, :callback, :api_base, :tools, :max_tool_iterations
 
       # Initialize a new Chat instance.
       #
@@ -55,6 +78,8 @@ module PatientHttp
       # @param model [String, nil] Model identifier (e.g., "gpt-4", "claude-3-opus")
       # @param provider [String, Symbol, nil] Provider identifier (e.g., "openai", "anthropic")
       # @param api_base [String, nil] Override the provider's API base URL (for LM Studio, etc.)
+      # @param tools [Array<Class, RubyLLM::Tool>, nil] Tool classes or instances to register
+      # @param max_tool_iterations [Integer, nil] Maximum number of tool call loop iterations
       def initialize(
         callback:,
         model: nil,
@@ -68,7 +93,9 @@ module PatientHttp
         thinking_budget: nil,
         schema: nil,
         params: nil,
-        headers: nil
+        headers: nil,
+        tools: nil,
+        max_tool_iterations: nil
       )
         @callback = callback
         @model = model
@@ -82,10 +109,13 @@ module PatientHttp
         @schema = nil
         @params = params || {}
         @headers = headers || {}
+        @tools = {}
+        @max_tool_iterations = max_tool_iterations || DEFAULT_MAX_TOOL_ITERATIONS
 
         with_instructions(instructions) if instructions
         add_messages(messages) if messages
         with_schema(schema) if schema
+        with_tools(*tools) if tools
       end
 
       # Set system instructions.
@@ -159,9 +189,9 @@ module PatientHttp
       end
 
       def thinking
-        if @thinking_effort || @thinking_budget
-          {effort: @thinking_effort, budget: @thinking_budget}
-        end
+        return unless @thinking_effort || @thinking_budget
+
+        {effort: @thinking_effort, budget: @thinking_budget}
       end
 
       # Set a JSON schema for structured output.
@@ -195,6 +225,38 @@ module PatientHttp
         self
       end
 
+      # Register a single tool for the chat.
+      #
+      # @param tool [Class, RubyLLM::Tool] A tool class or instance
+      # @return [self]
+      def with_tool(tool)
+        tool_instance = tool.is_a?(Class) ? tool.new : tool
+        @tools[tool_instance.name.to_sym] = tool_instance
+        self
+      end
+
+      # Register multiple tools for the chat.
+      #
+      # @param tools [Array<Class, RubyLLM::Tool>] Tool classes or instances
+      # @return [self]
+      def with_tools(*tools)
+        tools.flatten.each { |tool| with_tool(tool) }
+        self
+      end
+
+      # Set the maximum number of tool call loop iterations.
+      #
+      # @param max [Integer] Maximum iterations (default: 25)
+      # @return [self]
+      def with_max_tool_iterations(max)
+        @max_tool_iterations = max
+        self
+      end
+
+      # Add multiple messages to the conversation.
+      #
+      # @param messages [Array<Hash, RubyLLM::Message, String>] Messages to add
+      # @return [self]
       def add_messages(messages)
         messages.each do |m|
           add_message(m)
@@ -203,6 +265,8 @@ module PatientHttp
       end
 
       # Add a message to the conversation.
+      # Supports plain text messages, hash messages, and RubyLLM::Message objects
+      # including those with tool_calls and tool_call_id.
       #
       # @param message_or_attrs [Hash, RubyLLM::Message, String] Message hash or object
       # @return [self]
@@ -210,7 +274,7 @@ module PatientHttp
         message = if message_or_attrs.is_a?(Hash)
           deserialize_message_hash(message_or_attrs)
         elsif message_or_attrs.respond_to?(:role) && message_or_attrs.respond_to?(:content)
-          {role: message_or_attrs.role.to_sym, content: message_or_attrs.content}
+          message_from_object(message_or_attrs)
         else
           {role: :user, content: message_or_attrs.to_s}
         end
@@ -261,7 +325,7 @@ module PatientHttp
       #
       # @return [Hash]
       def as_json
-        {
+        data = {
           "v" => SERIALIZATION_VERSION,
           "callback" => @callback&.to_s,
           "model" => model,
@@ -276,6 +340,11 @@ module PatientHttp
           "params" => deep_stringify_keys(params),
           "headers" => deep_stringify_keys(headers)
         }
+
+        data["tools"] = serialize_tools if tools.any?
+        data["max_tool_iterations"] = max_tool_iterations if max_tool_iterations != DEFAULT_MAX_TOOL_ITERATIONS
+
+        data
       end
 
       alias_method :dump, :as_json
@@ -296,12 +365,53 @@ module PatientHttp
       def deserialize_message_hash(message_hash)
         role = message_hash[:role] || message_hash["role"]
         content = message_hash[:content] || message_hash["content"]
+        tool_calls = message_hash[:tool_calls] || message_hash["tool_calls"]
+        tool_call_id = message_hash[:tool_call_id] || message_hash["tool_call_id"]
 
-        unless role && content && role != "" && content != ""
+        # Assistant messages with tool_calls may have empty/nil content
+        valid = role && (content || tool_calls) && role != ""
+        unless valid
           raise ArgumentError.new("Message hash must have role and content; actual keys: #{message_hash.keys.join(", ")}")
         end
 
-        {role: role.to_sym, content: content}
+        msg = {role: role.to_sym, content: content || ""}
+        msg[:tool_calls] = deserialize_tool_calls(tool_calls) if tool_calls
+        msg[:tool_call_id] = tool_call_id if tool_call_id
+        msg
+      end
+
+      # Convert a message-like object (e.g. RubyLLM::Message) to an internal hash.
+      #
+      # @param obj [Object] An object responding to #role and #content
+      # @return [Hash]
+      def message_from_object(obj)
+        msg = {role: obj.role.to_sym, content: obj.content}
+
+        if obj.respond_to?(:tool_calls) && obj.tool_calls && !obj.tool_calls.empty?
+          msg[:tool_calls] = obj.tool_calls.transform_values do |tc|
+            {id: tc.id, name: tc.name, arguments: tc.arguments}
+          end
+        end
+
+        msg[:tool_call_id] = obj.tool_call_id if obj.respond_to?(:tool_call_id) && obj.tool_call_id
+
+        msg
+      end
+
+      # Deserialize tool_calls from serialized hash form.
+      #
+      # @param tool_calls [Hash] Serialized tool calls
+      # @return [Hash]
+      def deserialize_tool_calls(tool_calls)
+        tool_calls.to_h do |id, tc|
+          tc = tc.transform_keys(&:to_s) if tc.is_a?(Hash)
+          call_id = tc["id"] || id
+          [call_id.to_s, {
+            "id" => call_id.to_s,
+            "name" => tc["name"],
+            "arguments" => tc["arguments"] || {}
+          }]
+        end
       end
 
       # Return the resolved model and provider instance.
@@ -312,16 +422,14 @@ module PatientHttp
       end
 
       def build_payload(model_info, provider_instance)
-        ruby_llm_messages = messages.map { |m| RubyLLM::Message.new(**m) }
+        ruby_llm_messages = messages.map { |m| build_ruby_llm_message(m) }
 
-        thinking_config = if thinking
-          RubyLLM::Thinking::Config.new(**thinking.transform_keys(&:to_sym))
-        end
+        thinking_config = (RubyLLM::Thinking::Config.new(**thinking.transform_keys(&:to_sym)) if thinking)
 
         provider_instance.send(
           :render_payload,
           ruby_llm_messages,
-          tools: {},
+          tools: tools,
           temperature: temperature,
           model: model_info,
           stream: false,
@@ -330,11 +438,60 @@ module PatientHttp
         ).then { |payload| RubyLLM::Utils.deep_merge(payload, params) }
       end
 
+      # Build a RubyLLM::Message from an internal message hash, preserving
+      # tool_calls and tool_call_id when present.
+      #
+      # @param message [Hash] Internal message hash
+      # @return [RubyLLM::Message]
+      def build_ruby_llm_message(message)
+        attrs = {role: message[:role], content: message[:content]}
+
+        if message[:tool_calls]
+          attrs[:tool_calls] = message[:tool_calls].transform_values do |tc|
+            tc = tc.transform_keys(&:to_s) if tc.is_a?(Hash)
+            RubyLLM::ToolCall.new(
+              id: tc["id"],
+              name: tc["name"],
+              arguments: symbolize_arguments(tc["arguments"] || {})
+            )
+          end
+        end
+
+        attrs[:tool_call_id] = message[:tool_call_id] if message[:tool_call_id]
+
+        RubyLLM::Message.new(**attrs)
+      end
+
+      def symbolize_arguments(args)
+        return {} unless args.is_a?(Hash)
+
+        args.transform_keys(&:to_sym)
+      end
+
       def serialize_message(message)
-        {
+        msg = {
           "role" => message[:role].to_s,
           "content" => message[:content]
         }
+
+        if message[:tool_calls]
+          msg["tool_calls"] = message[:tool_calls].transform_values do |tc|
+            tc = tc.transform_keys(&:to_s) if tc.is_a?(Hash)
+            {
+              "id" => tc["id"],
+              "name" => tc["name"],
+              "arguments" => deep_stringify_keys(tc["arguments"] || {})
+            }
+          end
+        end
+
+        msg["tool_call_id"] = message[:tool_call_id] if message[:tool_call_id]
+
+        msg
+      end
+
+      def serialize_tools
+        tools.values.map { |tool| tool.class.name }
       end
 
       def deep_stringify_keys(obj)
