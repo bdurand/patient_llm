@@ -4,7 +4,7 @@ module PatientHttp
   module LLM
     # Chat is the main interface for making asynchronous LLM requests.
     # It provides a similar interface to RubyLLM::Chat but is designed
-    # for async HTTP requests via Sidekiq.
+    # for async HTTP requests.
     #
     # @example Basic usage
     #   chat = PatientHttp::LLM::Chat.new(callback: ChatCallback)

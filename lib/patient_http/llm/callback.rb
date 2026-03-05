@@ -12,29 +12,31 @@ module PatientHttp
         chat = Chat.load(callback_args[:chat])
         provider_slug = chat.provider
         model_id = chat.model
+        request_id = callback_request_id(callback_args, response)
 
         faraday_response = to_faraday_response(response)
         provider_instance = lookup_provider_instance(model_id, provider_slug)
         message = provider_instance.send(:parse_completion_response, faraday_response)
 
         if message.tool_call? && chat.tools.any?
-          handle_tool_calls(chat, message, callback_args, response)
+          handle_tool_calls(chat, message, callback_args, response, request_id)
         else
           user_callback = chat_callback(callback_args)
-          user_callback.on_complete(chat, message, chat_callback_args(callback_args), response)
+          user_callback.on_complete(chat, message, chat_callback_args(callback_args, request_id), response)
         end
       end
 
       def on_error(error)
         callback_args = error.callback_args
         chat = Chat.load(callback_args[:chat])
+        request_id = callback_request_id(callback_args, error)
         user_callback = chat_callback(callback_args)
-        user_callback.on_error(chat, chat_callback_args(callback_args), error)
+        user_callback.on_error(chat, chat_callback_args(callback_args, request_id), error)
       end
 
       private
 
-      def handle_tool_calls(chat, message, callback_args, response)
+      def handle_tool_calls(chat, message, callback_args, response, request_id)
         iteration = (callback_args.fetch(:tool_iteration, 0) || 0) + 1
 
         if iteration > chat.max_tool_iterations
@@ -42,7 +44,7 @@ module PatientHttp
           error = ToolIterationLimitError.new(
             "Tool call loop exceeded maximum of #{chat.max_tool_iterations} iterations"
           )
-          user_callback.on_error(chat, chat_callback_args(callback_args), error)
+          user_callback.on_error(chat, chat_callback_args(callback_args, request_id), error)
           return
         end
 
@@ -63,9 +65,9 @@ module PatientHttp
         if halt_result
           halt_message = RubyLLM::Message.new(role: :assistant, content: halt_result.content.to_s)
           user_callback = chat_callback(callback_args)
-          user_callback.on_complete(chat, halt_message, chat_callback_args(callback_args), response)
+          user_callback.on_complete(chat, halt_message, chat_callback_args(callback_args, request_id), response)
         else
-          continue_after_tool_calls(chat, callback_args, iteration)
+          continue_after_tool_calls(chat, callback_args, iteration, request_id)
         end
       end
 
@@ -78,8 +80,8 @@ module PatientHttp
         tool.call(tool_call.arguments)
       end
 
-      def continue_after_tool_calls(chat, callback_args, iteration)
-        custom_args = callback_args[:custom] || {}
+      def continue_after_tool_calls(chat, callback_args, iteration, request_id)
+        custom_args = callback_arg(callback_args, :custom) || callback_arg(callback_args, "custom") || {}
         custom_args = custom_args.transform_keys(&:to_s) if custom_args.is_a?(Hash)
 
         model_info, provider_instance = RubyLLM::Models.resolve(
@@ -102,6 +104,7 @@ module PatientHttp
             chat: chat.as_json,
             chat_callback: callback_args[:chat_callback],
             custom: custom_args,
+            llm_request_id: request_id,
             tool_iteration: iteration
           }
         )
@@ -132,8 +135,27 @@ module PatientHttp
         callback_class.new
       end
 
-      def chat_callback_args(callback_args)
-        PatientHttp::CallbackArgs.new(callback_args[:custom])
+      def chat_callback_args(callback_args, request_id = nil)
+        custom_args = callback_arg(callback_args, :custom) || callback_arg(callback_args, "custom") || {}
+        custom_args = custom_args.to_h if custom_args.respond_to?(:to_h)
+        custom_args = custom_args.transform_keys(&:to_s) if custom_args.is_a?(Hash)
+
+        callback_args_hash = custom_args
+        callback_args_hash = callback_args_hash.merge("llm_request_id" => request_id) if request_id
+
+        PatientHttp::CallbackArgs.new(callback_args_hash)
+      end
+
+      def callback_request_id(callback_args, response_or_error)
+        callback_arg(callback_args, :llm_request_id) ||
+          callback_arg(callback_args, "llm_request_id") ||
+          (response_or_error.request_id if response_or_error.respond_to?(:request_id))
+      end
+
+      def callback_arg(callback_args, key)
+        callback_args[key]
+      rescue ArgumentError, KeyError
+        nil
       end
     end
   end

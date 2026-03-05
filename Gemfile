@@ -10,4 +10,3 @@ gem "yard"
 
 # Local development dependencies
 gem "patient_http", github: "bdurand/patient_http", branch: "main"
-gem "patient_http-sidekiq", github: "bdurand/patient_http-sidekiq", branch: "main"

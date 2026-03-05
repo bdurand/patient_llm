@@ -109,6 +109,7 @@ RSpec.describe PatientHttp::LLM::Callback do
 
         expect(test_callback_instance).to have_received(:on_complete) do |_chat, _message, args, _response|
           expect(args[:user_id]).to eq("123")
+          expect(args[:llm_request_id]).to eq(response.request_id)
         end
       end
     end
@@ -154,6 +155,7 @@ RSpec.describe PatientHttp::LLM::Callback do
         expect(PatientHttp).to receive(:post) do |url, **kwargs|
           expect(url).to include("openai.com")
           expect(kwargs[:callback_args][:tool_iteration]).to eq(1)
+          expect(kwargs[:callback_args][:llm_request_id]).to eq(response.request_id)
 
           chat_json = kwargs[:callback_args][:chat]
           messages = chat_json["messages"]
@@ -169,7 +171,7 @@ RSpec.describe PatientHttp::LLM::Callback do
       end
 
       it "increments tool_iteration across rounds" do
-        callback_args_iter = callback_args_with_tools.merge(tool_iteration: 3)
+        callback_args_iter = callback_args_with_tools.merge(tool_iteration: 3, llm_request_id: "req_root_123")
         response_iter = build_response(callback_args: callback_args_iter)
 
         allow(provider_instance).to receive(:send)
@@ -183,6 +185,7 @@ RSpec.describe PatientHttp::LLM::Callback do
 
         expect(PatientHttp).to receive(:post) do |_url, **kwargs|
           expect(kwargs[:callback_args][:tool_iteration]).to eq(4)
+          expect(kwargs[:callback_args][:llm_request_id]).to eq("req_root_123")
         end
 
         callback.on_complete(response_iter)
@@ -485,6 +488,16 @@ RSpec.describe PatientHttp::LLM::Callback do
 
       expect(test_callback_instance).to have_received(:on_error) do |_chat, args, _error|
         expect(args[:user_id]).to eq("123")
+      end
+    end
+
+    it "passes llm_request_id to the user callback when present" do
+      allow(error).to receive(:callback_args).and_return(callback_args.merge(llm_request_id: "req_456"))
+
+      callback.on_error(error)
+
+      expect(test_callback_instance).to have_received(:on_error) do |_chat, args, _error|
+        expect(args[:llm_request_id]).to eq("req_456")
       end
     end
   end

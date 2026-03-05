@@ -27,7 +27,7 @@ RubyLLM.configure do |config|
   config.openai_api_key = "lm-studio" # LM Studio doesn't require a real key
 end
 
-PatientHttp.configure do |config|
+PatientHttp::Sidekiq.configure do |config|
   config.request_timeout = 120
 end
 

@@ -31,20 +31,6 @@ header h1 {
   font-size: 1.8rem;
 }
 
-.sidekiq-link {
-  color: #64b5f6;
-  text-decoration: none;
-  padding: 8px 16px;
-  border: 1px solid #64b5f6;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.sidekiq-link:hover {
-  background: #64b5f6;
-  color: #1a1a2e;
-}
-
 .main-content {
   display: grid;
   grid-template-columns: 1fr 350px;

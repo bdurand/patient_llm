@@ -2,13 +2,13 @@
 
 :construction: NOT RELEASED :construction:
 
-[![Continuous Integration](https://github.com/bdurand/sidekiq-async_llm/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/bdurand/sidekiq-async_llm/actions/workflows/continuous_integration.yml)
+[![Continuous Integration](https://github.com/bdurand/patient_http-llm/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/bdurand/patient_http-llm/actions/workflows/continuous_integration.yml)
 [![Ruby Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://github.com/testdouble/standard)
-[![Gem Version](https://badge.fury.io/rb/sidekiq-async_llm.svg)](https://badge.fury.io/rb/sidekiq-async_llm)
+[![Gem Version](https://badge.fury.io/rb/patient_http-llm.svg)](https://badge.fury.io/rb/patient_http-llm)
 
-Integrate LLM APIs with your Ruby backend applications without blocking threads. This gem uses asynchronous HTTP requests from within Sidekiq jobs to call LLM providers like OpenAI, Anthropic, and others. When a response is returned, your specified callback worker is invoked to handle the result.
+Integrate LLM APIs with your Ruby backend applications without blocking threads. This gem uses asynchronous HTTP requests to call LLM providers like OpenAI, Anthropic, and others. When a response is returned, your specified callback worker is invoked to handle the result.
 
-LLM API calls can take a long time to complete. With traditional synchronous HTTP clients, these requests tie up both application threads and Sidekiq worker threads while waiting for responses. This gem solves that problem by using async HTTP, freeing up your threads to do other work while waiting for the LLM provider to respond.
+LLM API calls can take a long time to complete. With traditional synchronous HTTP clients, these requests tie up application threads while waiting for responses. This gem solves that problem by using async HTTP, freeing up your threads to do other work while waiting for the LLM provider to respond.
 
 ## Usage
 
@@ -24,14 +24,6 @@ RubyLLM.configure do |config|
 end
 ```
 
-You can tune the async HTTP client settings as needed:
-
-```ruby
-Sidekiq::AsyncHttp.configure do |config|
-  config.max_connections = 1000
-end
-```
-
 ### Creating a Callback Class
 
 Create a callback class with `on_complete` and `on_error` methods:
@@ -42,6 +34,7 @@ class LLMCallback
     # chat          - the PatientHttp::LLM::Chat instance
     # message       - a RubyLLM::Message with the assistant's response
     # callback_args - a PatientHttp::CallbackArgs containing your custom data
+    #                 and llm_request_id (the original request id across tool loops)
     # response      - the raw PatientHttp::Response with timing info
 
     # Add the response to the conversation for multi-turn chats
@@ -54,6 +47,7 @@ class LLMCallback
 
     # Access your custom callback args
     user_id = callback_args[:user_id]
+    request_id = callback_args[:llm_request_id]
 
     # Save the chat state for future turns
     save_chat_state(user_id, chat.as_json)
@@ -254,7 +248,7 @@ chat.ask("Tell me more about that.", callback_args: { conversation_id: conversat
 Add this line to your application's Gemfile:
 
 ```ruby
-gem "sidekiq-async_llm"
+gem "patient_http-llm"
 ```
 
 Then execute:
@@ -264,12 +258,12 @@ $ bundle
 
 Or install it yourself as:
 ```bash
-$ gem install sidekiq-async_llm
+$ gem install patient_http-llm
 ```
 
 ## Contributing
 
-Open a pull request on [GitHub](https://github.com/bdurand/sidekiq-async_llm).
+Open a pull request on [GitHub](https://github.com/bdurand/patient_http-llm).
 
 Please use the [standardrb](https://github.com/testdouble/standard) syntax and lint your code with `standardrb --fix` before submitting.
 
