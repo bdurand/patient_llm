@@ -1,4 +1,4 @@
-# Sidekiq::AsyncLLM
+# PatientHttp::LLM
 
 :construction: NOT RELEASED :construction:
 
@@ -39,10 +39,10 @@ Create a callback class with `on_complete` and `on_error` methods:
 ```ruby
 class LLMCallback
   def on_complete(chat, message, callback_args, response)
-    # chat          - the Sidekiq::AsyncLLM::Chat instance
+    # chat          - the PatientHttp::LLM::Chat instance
     # message       - a RubyLLM::Message with the assistant's response
-    # callback_args - a AsyncHttpPool::CallbackArgs containing your custom data
-    # response      - the raw AsyncHttpPool::Response with timing info
+    # callback_args - a PatientHttp::CallbackArgs containing your custom data
+    # response      - the raw PatientHttp::Response with timing info
 
     # Add the response to the conversation for multi-turn chats
     chat.add_message(message)
@@ -73,7 +73,7 @@ end
 Create a `Chat` instance and call `ask` to make an async request:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
+chat = PatientHttp::LLM::Chat.new(callback: LLMCallback)
 chat.with_instructions("You are a helpful assistant.")
 chat.ask("What is the capital of France?")
 ```
@@ -94,7 +94,7 @@ The request is sent asynchronously. When the LLM responds, your callback's `on_c
 The `Chat` class supports various configuration methods:
 
 ```ruby
-chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
+chat = PatientHttp::LLM::Chat.new(callback: LLMCallback)
 
 # Set the model
 chat.with_model("gpt-4o", provider: :openai)
@@ -130,7 +130,7 @@ Conversations can be serialized to JSON for storage and later restored:
 
 ```ruby
 # Initial request
-chat = Sidekiq::AsyncLLM::Chat.new(callback: LLMCallback)
+chat = PatientHttp::LLM::Chat.new(callback: LLMCallback)
 chat.with_instructions("You are a helpful assistant.")
 chat.ask("Hello!", callback_args: { conversation_id: conversation.id })
 
@@ -142,7 +142,7 @@ end
 
 # Later, restore and continue:
 chat_data = load_from_database(conversation_id)
-chat = Sidekiq::AsyncLLM::Chat.load(chat_data)
+chat = PatientHttp::LLM::Chat.load(chat_data)
 chat.ask("Tell me more about that.", callback_args: { conversation_id: conversation_id })
 ```
 

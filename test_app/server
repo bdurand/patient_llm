@@ -6,7 +6,6 @@ require "async"
 require "async/http/server"
 require "protocol/rack/adapter"
 require "securerandom"
-require "sidekiq/async_http/web_ui"
 
 require_relative "initialize"
 

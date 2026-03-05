@@ -2,7 +2,7 @@
 
 // State
 let chatState = null;
-const pendingRequests = new Map(); // Map of request_id -> {pollInterval, messageEl}
+const pendingRequests = new Map(); // Map of request_id -> {pollInterval, messageEl, requestContext}
 
 // DOM elements
 const messagesEl = document.getElementById('messages');
@@ -35,6 +35,39 @@ function showToast(message, type = 'info') {
   }, 3000);
 }
 
+function cloneChatState(state) {
+  if (state == null) {
+    return null;
+  }
+
+  return JSON.parse(JSON.stringify(state));
+}
+
+function parseChatState(serializedChatState) {
+  if (!serializedChatState) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(serializedChatState);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function trimConversationAfter(messageEl) {
+  let currentEl = messageEl.nextElementSibling;
+
+  while (currentEl) {
+    const nextEl = currentEl.nextElementSibling;
+    if (currentEl.dataset.requestId) {
+      stopPolling(currentEl.dataset.requestId);
+    }
+    currentEl.remove();
+    currentEl = nextEl;
+  }
+}
+
 // Add message to chat
 function addMessage(role, content, meta = null) {
   // Remove empty state if present
@@ -56,7 +89,11 @@ function addMessage(role, content, meta = null) {
     if (meta.duration) {
       metaText += ` | ${meta.duration}s`;
     }
-    html += `<div class="message-tokens">${metaText}</div>`;
+    html += `
+      <div class="message-footer">
+        <div class="message-tokens">${metaText}</div>
+      </div>
+    `;
   }
 
   messageEl.innerHTML = html;
@@ -80,7 +117,9 @@ function getSettings() {
 }
 
 // Add pending message placeholder
-function addPendingMessage(requestId) {
+function addPendingMessage(requestId, options = {}) {
+  const {replaceEl = null} = options;
+
   // Remove empty state if present
   const emptyState = messagesEl.querySelector('.empty-state');
   if (emptyState) emptyState.remove();
@@ -96,7 +135,11 @@ function addPendingMessage(requestId) {
       </div>
     </div>
   `;
-  messagesEl.appendChild(pendingMessageEl);
+  if (replaceEl) {
+    replaceEl.replaceWith(pendingMessageEl);
+  } else {
+    messagesEl.appendChild(pendingMessageEl);
+  }
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
   return pendingMessageEl;
@@ -111,14 +154,20 @@ function removePendingMessage(requestId) {
 }
 
 // Send chat message
-async function sendMessage(message) {
-  // Add user message to UI
-  addMessage('user', message);
+async function sendMessage(message, options = {}) {
+  const addUserBubble = options.addUserBubble !== false;
+  const replaceAssistantEl = options.replaceAssistantEl || null;
+  const chatBefore = options.chatOverride === undefined ? chatState : options.chatOverride;
+  const chatSnapshot = cloneChatState(chatBefore);
+
+  if (addUserBubble) {
+    addMessage('user', message);
+  }
 
   const settings = getSettings();
   const payload = {
     message: message,
-    chat: chatState,
+    chat: chatSnapshot,
     ...settings
   };
 
@@ -137,18 +186,29 @@ async function sendMessage(message) {
     const result = await response.json();
     const requestId = result.request_id;
 
+    if (replaceAssistantEl) {
+      trimConversationAfter(replaceAssistantEl);
+      chatState = chatSnapshot;
+    }
+
     // Add pending placeholder
-    const messageEl = addPendingMessage(requestId);
+    const messageEl = addPendingMessage(requestId, {replaceEl: replaceAssistantEl});
 
     // Start polling for this specific request
-    startPolling(requestId, messageEl);
+    startPolling(requestId, messageEl, {
+      userMessage: message,
+      chatBefore: chatSnapshot
+    });
+
+    return true;
   } catch (error) {
     showToast(error.message, 'error');
+    return false;
   }
 }
 
 // Poll for result
-function startPolling(requestId, messageEl) {
+function startPolling(requestId, messageEl, requestContext) {
   const pollInterval = setInterval(async () => {
     try {
       const response = await fetch(`/result?request_id=${encodeURIComponent(requestId)}`);
@@ -169,7 +229,7 @@ function startPolling(requestId, messageEl) {
     }
   }, 500);
 
-  pendingRequests.set(requestId, { pollInterval, messageEl });
+  pendingRequests.set(requestId, {pollInterval, messageEl, requestContext});
 }
 
 // Stop polling
@@ -185,6 +245,7 @@ function stopPolling(requestId) {
 function handleResult(requestId, result) {
   const pending = pendingRequests.get(requestId);
   const messageEl = pending?.messageEl;
+  const requestContext = pending?.requestContext;
 
   if (messageEl) {
     // Replace the pending placeholder with actual content
@@ -199,8 +260,17 @@ function handleResult(requestId, result) {
       messageEl.innerHTML = `
         <div class="message-role">Assistant</div>
         <div class="message-content">${renderedContent}</div>
-        <div class="message-tokens">${metaText}</div>
+        <div class="message-footer">
+          <div class="message-tokens">${metaText}</div>
+          <button type="button" class="message-refresh-btn" title="Regenerate response" aria-label="Regenerate response">↻</button>
+        </div>
       `;
+
+      if (requestContext?.userMessage) {
+        messageEl.dataset.userMessage = requestContext.userMessage;
+        messageEl.dataset.chatBefore = JSON.stringify(requestContext.chatBefore);
+      }
+
       chatState = result.chat;
       showToast('Response received', 'success');
     } else {
@@ -210,10 +280,29 @@ function handleResult(requestId, result) {
         <div class="message-role">Error</div>
         <div class="message-content">${errorContent}</div>
       `;
+
+      delete messageEl.dataset.userMessage;
+      delete messageEl.dataset.chatBefore;
       showToast(`Error: ${result.error.message}`, 'error');
     }
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
+}
+
+async function refreshAssistantMessage(messageEl) {
+  const userMessage = messageEl.dataset.userMessage;
+  if (!userMessage) {
+    showToast('Unable to regenerate this response', 'error');
+    return;
+  }
+
+  const chatBefore = parseChatState(messageEl.dataset.chatBefore);
+
+  await sendMessage(userMessage, {
+    addUserBubble: false,
+    chatOverride: chatBefore,
+    replaceAssistantEl: messageEl
+  });
 }
 
 // Reset conversation
@@ -242,6 +331,25 @@ chatForm.addEventListener('submit', (e) => {
 
 // Reset button handler
 resetBtn.addEventListener('click', resetConversation);
+
+messagesEl.addEventListener('click', async (event) => {
+  const refreshBtn = event.target.closest('.message-refresh-btn');
+  if (!refreshBtn || refreshBtn.disabled) {
+    return;
+  }
+
+  const assistantMessageEl = refreshBtn.closest('.message.assistant');
+  if (!assistantMessageEl) {
+    return;
+  }
+
+  refreshBtn.disabled = true;
+  await refreshAssistantMessage(assistantMessageEl);
+
+  if (document.body.contains(refreshBtn)) {
+    refreshBtn.disabled = false;
+  }
+});
 
 // Keyboard shortcut: Ctrl/Cmd + Enter to send
 userMessageEl.addEventListener('keydown', (e) => {

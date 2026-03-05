@@ -4,9 +4,7 @@ require "bundler/setup"
 Bundler.require
 
 require "sidekiq"
-require "sidekiq/async_http"
-require "sidekiq-async_llm"
-require "json"
+require "patient_http-llm"
 
 require_relative "app_config"
 
@@ -27,6 +25,10 @@ end
 # LM Studio provides an OpenAI-compatible API
 RubyLLM.configure do |config|
   config.openai_api_key = "lm-studio" # LM Studio doesn't require a real key
+end
+
+PatientHttp.configure do |config|
+  config.request_timeout = 120
 end
 
 puts "Initialized with:"

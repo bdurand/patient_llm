@@ -2,7 +2,7 @@
 
 require "bundler/setup"
 
-require_relative "../lib/sidekiq-async_llm"
+require_relative "../lib/patient_http-llm"
 
 # Mock callback class for testing
 class TestCallback
@@ -18,8 +18,6 @@ RubyLLM.configure do |config|
   config.openai_api_key = "test-key"
   config.anthropic_api_key = "test-key"
 end
-
-Sidekiq.logger.level = Logger::ERROR if Sidekiq.respond_to?(:logger) && Sidekiq.logger
 
 RSpec.configure do |config|
   config.disable_monkey_patching!

@@ -35,5 +35,7 @@ map "/sidekiq" do
     SecureRandom.hex(32)
   end
   use Rack::Session::Cookie, secret: session_secret, same_site: true, max_age: 86400
+
+  require "sidekiq/web"
   run Sidekiq::Web
 end

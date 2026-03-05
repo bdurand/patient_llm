@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Sidekiq::AsyncLLM::Callback do
+RSpec.describe PatientHttp::LLM::Callback do
   let(:callback) { described_class.new }
 
   let(:chat_data) do
@@ -27,7 +27,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
   describe "#on_complete" do
     let(:response) do
-      AsyncHttpPool::Response.new(
+      PatientHttp::Response.new(
         callback_args: callback_args,
         http_method: :post,
         url: "https://api.openai.com/v1/chat/completions",
@@ -71,7 +71,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       callback.on_complete(response)
 
       expect(test_callback_instance).to have_received(:on_complete) do |chat, _message, _args, _response|
-        expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
+        expect(chat).to be_a(PatientHttp::LLM::Chat)
         expect(chat.model).to eq("gpt-4")
         expect(chat.provider).to eq("openai")
       end
@@ -89,9 +89,9 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
       expect(test_callback_instance).to have_received(:on_complete)
         .with(
-          instance_of(Sidekiq::AsyncLLM::Chat),
+          instance_of(PatientHttp::LLM::Chat),
           mock_message,
-          instance_of(AsyncHttpPool::CallbackArgs),
+          instance_of(PatientHttp::CallbackArgs),
           response
         )
     end
@@ -108,7 +108,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
   describe "#on_error" do
     let(:error) do
       instance_double(
-        AsyncHttpPool::Error,
+        PatientHttp::Error,
         callback_args: callback_args,
         error_type: :http_error,
         message: "Connection failed"
@@ -118,7 +118,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
     let(:test_callback_instance) { TestCallback.new }
 
     before do
-      allow(AsyncHttpPool::ClassHelper).to receive(:resolve_class_name)
+      allow(PatientHttp::ClassHelper).to receive(:resolve_class_name)
         .with("TestCallback")
         .and_return(TestCallback)
 
@@ -130,7 +130,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       callback.on_error(error)
 
       expect(test_callback_instance).to have_received(:on_error) do |chat, _args, _error|
-        expect(chat).to be_a(Sidekiq::AsyncLLM::Chat)
+        expect(chat).to be_a(PatientHttp::LLM::Chat)
         expect(chat.model).to eq("gpt-4")
       end
     end
@@ -140,8 +140,8 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
       expect(test_callback_instance).to have_received(:on_error)
         .with(
-          instance_of(Sidekiq::AsyncLLM::Chat),
-          instance_of(AsyncHttpPool::CallbackArgs),
+          instance_of(PatientHttp::LLM::Chat),
+          instance_of(PatientHttp::CallbackArgs),
           error
         )
     end
@@ -157,7 +157,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
 
   describe "#to_faraday_response (private)" do
     let(:response) do
-      AsyncHttpPool::Response.new(
+      PatientHttp::Response.new(
         http_method: :post,
         url: "https://api.openai.com/v1/chat/completions",
         status: 200,
@@ -191,7 +191,7 @@ RSpec.describe Sidekiq::AsyncLLM::Callback do
       custom_args = {"user_id" => "123", "session_id" => "abc"}
       args = callback.send(:chat_callback_args, {custom: custom_args})
 
-      expect(args).to be_a(AsyncHttpPool::CallbackArgs)
+      expect(args).to be_a(PatientHttp::CallbackArgs)
       expect(args[:user_id]).to eq("123")
       expect(args[:session_id]).to eq("abc")
     end

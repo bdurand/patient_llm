@@ -24,9 +24,9 @@ class ChatAction
 
     # Load existing chat or create new one
     chat = if params["chat"]
-      Sidekiq::AsyncLLM::Chat.load(params["chat"])
+      PatientHttp::LLM::Chat.load(params["chat"])
     else
-      Sidekiq::AsyncLLM::Chat.new(
+      PatientHttp::LLM::Chat.new(
         callback: LLMCallback,
         model: params["model"],
         provider: "openai", # LM Studio is OpenAI-compatible

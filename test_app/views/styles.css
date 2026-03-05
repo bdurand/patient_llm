@@ -167,17 +167,55 @@ header h1 {
   word-wrap: break-word;
 }
 
-.message-tokens {
-  font-size: 0.7rem;
-  color: #888;
+.message-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.message-tokens {
+  font-size: 0.7rem;
+  color: #888;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  flex: 1;
+  min-width: 0;
+}
+
 .message.assistant .message-tokens,
 .message.error .message-tokens {
   color: #a8a8a8;
+}
+
+.message-refresh-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid #64b5f6;
+  border-radius: 50%;
+  background: transparent;
+  color: #64b5f6;
+  font-size: 0.95rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.message-refresh-btn:hover:not(:disabled) {
+  background: #2a4a6f;
+}
+
+.message-refresh-btn:disabled {
+  border-color: #555;
+  color: #555;
+  cursor: not-allowed;
 }
 
 .message.pending {

@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-module Sidekiq
-  module AsyncLLM
+module PatientHttp
+  module LLM
     # Chat is the main interface for making asynchronous LLM requests.
     # It provides a similar interface to RubyLLM::Chat but is designed
     # for async HTTP requests via Sidekiq.
     #
     # @example Basic usage
-    #   chat = Sidekiq::AsyncLLM::Chat.new(callback: ChatCallback)
+    #   chat = PatientHttp::LLM::Chat.new(callback: ChatCallback)
     #   chat.with_instructions("You are a helpful assistant")
     #   chat.add_message(role: :user, content: "Hello!")
     #   chat.ask
@@ -243,12 +243,12 @@ module Sidekiq
         request_url = URI.join(base_url, completion_path).to_s
         request_headers = provider_instance.headers.merge(headers)
 
-        Sidekiq::AsyncHttp.post(
+        PatientHttp.post(
           request_url,
           json: payload,
           headers: request_headers,
           raise_error_responses: true,
-          callback: Sidekiq::AsyncLLM::Callback,
+          callback: PatientHttp::LLM::Callback,
           callback_args: {
             chat: as_json,
             chat_callback: @callback&.to_s,
@@ -327,7 +327,7 @@ module Sidekiq
           stream: false,
           schema: schema,
           thinking: thinking_config
-        ).merge(params)
+        ).then { |payload| RubyLLM::Utils.deep_merge(payload, params) }
       end
 
       def serialize_message(message)

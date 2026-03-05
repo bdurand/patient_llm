@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe Sidekiq::AsyncLLM::Chat do
+RSpec.describe PatientHttp::LLM::Chat do
   let(:chat) do
     described_class.new(
       callback: TestCallback,
@@ -196,6 +196,42 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
     end
   end
 
+  describe "#build_payload (private)" do
+    it "deep merges nested params into the provider payload" do
+      chat.with_params(response_format: {json_schema: {strict: true}})
+
+      model_info = double("model")
+      provider_instance = instance_double("RubyLLM::Provider")
+      rendered_payload = {
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "response",
+            strict: false
+          }
+        },
+        stream: false
+      }
+
+      allow(provider_instance).to receive(:send)
+        .with(:render_payload, [], hash_including(model: model_info, stream: false))
+        .and_return(rendered_payload)
+
+      payload = chat.send(:build_payload, model_info, provider_instance)
+
+      expect(payload).to eq(
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "response",
+            strict: true
+          }
+        },
+        stream: false
+      )
+    end
+  end
+
   describe "#add_message" do
     it "adds a hash message" do
       chat.add_message(role: :user, content: "Hello")
@@ -243,7 +279,7 @@ RSpec.describe Sidekiq::AsyncLLM::Chat do
 
     it "serializes to a hash" do
       json = chat.as_json
-      expect(json["v"]).to eq(Sidekiq::AsyncLLM::Chat::SERIALIZATION_VERSION)
+      expect(json["v"]).to eq(PatientHttp::LLM::Chat::SERIALIZATION_VERSION)
       expect(json["callback"]).to eq("TestCallback")
       expect(json["model"]).to eq("gpt-4")
       expect(json["provider"]).to eq("openai")

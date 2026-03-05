@@ -3,10 +3,10 @@
 class LLMCallback
   # Handle successful completion of an LLM request
   #
-  # @param chat [Sidekiq::AsyncLLM::Chat] the chat instance
-  # @param message [Sidekiq::AsyncLLM::Message] the response message
+  # @param chat [PatientHttp::LLM::Chat] the chat instance
+  # @param message [PatientHttp::LLM::Message] the response message
   # @param callback_args [Array] additional callback arguments
-  # @param response [Sidekiq::AsyncLLM::Response] the response object
+  # @param response [PatientHttp::LLM::Response] the response object
   def on_complete(chat, message, callback_args, response)
     # Add the assistant's response to the chat
     chat.add_message(message) if message
@@ -33,9 +33,9 @@ class LLMCallback
 
   # Handle errors during an LLM request
   #
-  # @param chat [Sidekiq::AsyncLLM::Chat] the chat instance
+  # @param chat [PatientHttp::LLM::Chat] the chat instance
   # @param callback_args [Array] additional callback arguments
-  # @param error [Sidekiq::AsyncLLM::Error] the error object
+  # @param error [PatientHttp::LLM::Error] the error object
   def on_error(chat, callback_args, error)
     # Build error result payload
     result = {

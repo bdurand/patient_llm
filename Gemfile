@@ -9,5 +9,5 @@ gem "standard", "~>1.0"
 gem "yard"
 
 # Local development dependencies
-gem "sidekiq-async_http", github: "bdurand/sidekiq-async_http", branch: "main"
-gem "async_http_pool", github: "bdurand/async_http_pool", branch: "main"
+gem "patient_http", github: "bdurand/patient_http", branch: "main"
+gem "patient_http-sidekiq", github: "bdurand/patient_http-sidekiq", branch: "main"
