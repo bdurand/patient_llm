@@ -11,6 +11,7 @@ RSpec.describe PatientHttp::LLM::Callback do
       "callback" => "TestCallback",
       "model" => "gpt-4",
       "provider" => "openai",
+      "api_base" => "https://api.openai.com",
       "messages" => [
         {"role" => "user", "content" => "Hello"}
       ]
@@ -26,6 +27,16 @@ RSpec.describe PatientHttp::LLM::Callback do
   end
 
   describe "#on_complete" do
+    let(:response_body) do
+      {
+        "choices" => [
+          {"message" => {"role" => "assistant", "content" => "Hello! How can I help?"}}
+        ],
+        "usage" => {"prompt_tokens" => 10, "completion_tokens" => 8},
+        "model" => "gpt-4"
+      }
+    end
+
     let(:response) do
       PatientHttp::Response.new(
         callback_args: callback_args,
@@ -33,36 +44,15 @@ RSpec.describe PatientHttp::LLM::Callback do
         url: "https://api.openai.com/v1/chat/completions",
         status: 200,
         headers: {"content-type" => "application/json"},
-        body: JSON.generate({
-          "choices" => [
-            {"message" => {"role" => "assistant", "content" => "Hello! How can I help?"}}
-          ],
-          "usage" => {"prompt_tokens" => 10, "completion_tokens" => 8}
-        }),
+        body: JSON.generate(response_body),
         duration: 1.0,
         request_id: SecureRandom.uuid
       )
     end
 
-    let(:mock_message) do
-      instance_double(RubyLLM::Message, role: :assistant, content: "Hello! How can I help?")
-    end
-
-    let(:provider_instance) do
-      instance_double("RubyLLM::Providers::OpenAI")
-    end
-
     let(:test_callback_instance) { TestCallback.new }
 
     before do
-      allow(RubyLLM::Models).to receive(:resolve)
-        .with("gpt-4", provider: "openai", assume_exists: true)
-        .and_return([double("model"), provider_instance])
-
-      allow(provider_instance).to receive(:send)
-        .with(:parse_completion_response, instance_of(Faraday::Response))
-        .and_return(mock_message)
-
       allow(TestCallback).to receive(:new).and_return(test_callback_instance)
       allow(test_callback_instance).to receive(:on_complete)
     end
@@ -77,11 +67,17 @@ RSpec.describe PatientHttp::LLM::Callback do
       end
     end
 
-    it "parses the response using the provider" do
+    it "parses the response into a Message" do
       callback.on_complete(response)
 
-      expect(provider_instance).to have_received(:send)
-        .with(:parse_completion_response, instance_of(Faraday::Response))
+      expect(test_callback_instance).to have_received(:on_complete) do |_chat, message, _args, _response|
+        expect(message).to be_a(PatientHttp::LLM::Message)
+        expect(message.role).to eq(:assistant)
+        expect(message.content).to eq("Hello! How can I help?")
+        expect(message.input_tokens).to eq(10)
+        expect(message.output_tokens).to eq(8)
+        expect(message.model_id).to eq("gpt-4")
+      end
     end
 
     it "calls the user callback with chat, message, callback_args, and response" do
@@ -90,7 +86,7 @@ RSpec.describe PatientHttp::LLM::Callback do
       expect(test_callback_instance).to have_received(:on_complete)
         .with(
           instance_of(PatientHttp::LLM::Chat),
-          mock_message,
+          instance_of(PatientHttp::LLM::Message),
           instance_of(PatientHttp::CallbackArgs),
           response
         )
@@ -152,37 +148,6 @@ RSpec.describe PatientHttp::LLM::Callback do
       expect(test_callback_instance).to have_received(:on_error) do |_chat, args, _error|
         expect(args[:user_id]).to eq("123")
       end
-    end
-  end
-
-  describe "#to_faraday_response (private)" do
-    let(:response) do
-      PatientHttp::Response.new(
-        http_method: :post,
-        url: "https://api.openai.com/v1/chat/completions",
-        status: 200,
-        headers: {"content-type" => "application/json"},
-        body: JSON.generate({"choices" => []}),
-        duration: 1.0,
-        request_id: SecureRandom.uuid
-      )
-    end
-
-    it "converts async response to Faraday::Response" do
-      faraday_response = callback.send(:to_faraday_response, response)
-
-      expect(faraday_response).to be_a(Faraday::Response)
-      expect(faraday_response.status).to eq(200)
-      expect(faraday_response.body).to eq({"choices" => []})
-    end
-
-    it "uses body when response is not JSON" do
-      allow(response).to receive(:json?).and_return(false)
-      allow(response).to receive(:body).and_return("plain text response")
-
-      faraday_response = callback.send(:to_faraday_response, response)
-
-      expect(faraday_response.body).to eq("plain text response")
     end
   end
 

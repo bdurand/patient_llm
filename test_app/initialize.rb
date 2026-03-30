@@ -21,13 +21,14 @@ Sidekiq.configure_client do |config|
   config.redis = {url: AppConfig.redis_url}
 end
 
-# Configure RubyLLM for local LM Studio
-# LM Studio provides an OpenAI-compatible API
-RubyLLM.configure do |config|
-  config.openai_api_key = "lm-studio" # LM Studio doesn't require a real key
+# Configure LLM providers
+PatientHttp::LLM.configure do |config|
+  config.provider :openai,
+    url: AppConfig.llm_api_base,
+    headers: {}
 end
 
-PatientHttp.configure do |config|
+PatientHttp::Sidekiq.configure do |config|
   config.request_timeout = 120
 end
 

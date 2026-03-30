@@ -197,38 +197,25 @@ RSpec.describe PatientHttp::LLM::Chat do
   end
 
   describe "#build_payload (private)" do
-    it "deep merges nested params into the provider payload" do
+    it "builds an OpenAI-format payload" do
+      chat.add_message(role: :user, content: "Hello")
+      payload = chat.send(:build_payload)
+
+      expect(payload[:model]).to eq("gpt-4")
+      expect(payload[:messages]).to eq([{role: "user", content: "Hello"}])
+    end
+
+    it "deep merges params into the payload" do
+      chat.with_schema({type: "object"})
       chat.with_params(response_format: {json_schema: {strict: true}})
 
-      model_info = double("model")
-      provider_instance = instance_double("RubyLLM::Provider")
-      rendered_payload = {
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "response",
-            strict: false
-          }
-        },
-        stream: false
-      }
+      chat.add_message(role: :user, content: "Hello")
+      payload = chat.send(:build_payload)
 
-      allow(provider_instance).to receive(:send)
-        .with(:render_payload, [], hash_including(model: model_info, stream: false))
-        .and_return(rendered_payload)
-
-      payload = chat.send(:build_payload, model_info, provider_instance)
-
-      expect(payload).to eq(
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: "response",
-            strict: true
-          }
-        },
-        stream: false
-      )
+      expect(payload[:response_format]).to eq({
+        type: "json_schema",
+        json_schema: {name: "response", schema: {type: "object"}, strict: true}
+      })
     end
   end
 
@@ -244,9 +231,16 @@ RSpec.describe PatientHttp::LLM::Chat do
     end
 
     it "adds a message-like object" do
-      message = double(role: :assistant, content: "Hi there")
+      message = double(role: :assistant, content: "Hi there", tool_calls: {}, tool_call_id: nil)
       chat.add_message(message)
       expect(chat.messages).to eq([{role: :assistant, content: "Hi there"}])
+    end
+
+    it "adds a Message with tool_calls" do
+      tool_call = PatientHttp::LLM::ToolCall.new(id: "tc_1", name: "weather", arguments: {location: "NYC"})
+      message = PatientHttp::LLM::Message.new(role: :assistant, content: nil, tool_calls: {"tc_1" => tool_call})
+      chat.add_message(message)
+      expect(chat.messages.last[:tool_calls]).to eq({"tc_1" => tool_call})
     end
 
     it "returns self for chaining" do
@@ -263,6 +257,17 @@ RSpec.describe PatientHttp::LLM::Chat do
 
     it "returns self for chaining" do
       expect(chat.reset_messages!).to eq(chat)
+    end
+  end
+
+  describe "#completion_path" do
+    it "defaults to /v1/chat/completions" do
+      expect(chat.completion_path).to eq("/v1/chat/completions")
+    end
+
+    it "uses explicit completion_path when set" do
+      chat = described_class.new(callback: TestCallback, completion_path: "/custom/path")
+      expect(chat.completion_path).to eq("/custom/path")
     end
   end
 
