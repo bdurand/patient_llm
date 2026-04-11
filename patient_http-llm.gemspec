@@ -4,7 +4,7 @@ Gem::Specification.new do |spec|
   spec.authors = ["Brian Durand"]
   spec.email = ["bbdurand@gmail.com"]
 
-  spec.summary = "Asynchronous LLM API requests. Provides integration between ruby-llm and patient_http."
+  spec.summary = "Asynchronous LLM API requests via patient_http using the OpenAI Chat Completions API."
 
   spec.homepage = "https://github.com/bdurand/patient_http-llm"
   spec.license = "MIT"
@@ -37,7 +37,6 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = ">= 3.0"
 
-  spec.add_dependency "ruby_llm", ">= 1.0"
   spec.add_dependency "patient_http"
 
   spec.add_development_dependency "bundler"

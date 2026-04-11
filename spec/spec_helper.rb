@@ -13,10 +13,11 @@ class TestCallback
   end
 end
 
-# Configure RubyLLM with fake API keys for testing
-RubyLLM.configure do |config|
-  config.openai_api_key = "test-key"
-  config.anthropic_api_key = "test-key"
+# Configure a test provider
+PatientHttp::LLM.configure do |config|
+  config.provider :openai,
+    url: "https://api.openai.com",
+    headers: {"Authorization" => "Bearer test-key"}
 end
 
 RSpec.configure do |config|

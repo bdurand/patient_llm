@@ -1,27 +1,30 @@
 # frozen_string_literal: true
 
+require "json"
+
 module PatientHttp
   module LLM
     # Callback class for handling async LLM responses.
     class Callback
+      # Handle a successful LLM completion response.
+      #
+      # @param response [PatientHttp::Response] The async response
+      # @return [void]
       def on_complete(response)
         callback_args = response.callback_args
         chat = Chat.load(callback_args[:chat])
-        provider_slug = chat.provider
-        model_id = chat.model
 
-        # Build a Faraday-like response for the provider
-        faraday_response = to_faraday_response(response)
-
-        provider_instance = lookup_provider_instance(model_id, provider_slug)
-
-        # Parse the response using the provider (method is private)
-        message = provider_instance.send(:parse_completion_response, faraday_response)
+        body = response.json? ? response.json : JSON.parse(response.body)
+        message = ResponseParser.parse(body)
 
         callback = chat_callback(callback_args)
         callback.on_complete(chat, message, chat_callback_args(callback_args), response)
       end
 
+      # Handle an error during an LLM request.
+      #
+      # @param error [PatientHttp::Error] The error
+      # @return [void]
       def on_error(error)
         callback_args = error.callback_args
         chat = Chat.load(callback_args[:chat])
@@ -30,26 +33,6 @@ module PatientHttp
       end
 
       private
-
-      # Convert a PatientHttp::Response to a Faraday::Response.
-      #
-      # @param response [PatientHttp::Response] The async response to convert.
-      # @return [Faraday::Response] A Faraday response object.
-      def to_faraday_response(response)
-        env = Faraday::Env.new
-        env.method = response.http_method
-        env.url = URI(response.url)
-        env.status = response.status
-        env.response_headers = response.headers.to_h
-        env.response_body = response.json? ? response.json : response.body
-
-        Faraday::Response.new(env)
-      end
-
-      def lookup_provider_instance(model_id, provider_slug)
-        _, provider_instance = RubyLLM::Models.resolve(model_id, provider: provider_slug, assume_exists: true)
-        provider_instance
-      end
 
       def chat_callback(callback_args)
         callback_class = PatientHttp::ClassHelper.resolve_class_name(callback_args[:chat_callback])

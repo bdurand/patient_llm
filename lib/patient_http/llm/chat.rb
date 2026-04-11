@@ -3,21 +3,14 @@
 module PatientHttp
   module LLM
     # Chat is the main interface for making asynchronous LLM requests.
-    # It provides a similar interface to RubyLLM::Chat but is designed
-    # for async HTTP requests via Sidekiq.
+    # It builds OpenAI Chat Completions API payloads and dispatches them
+    # via PatientHttp for async execution.
     #
     # @example Basic usage
-    #   chat = PatientHttp::LLM::Chat.new(callback: ChatCallback)
+    #   chat = PatientHttp::LLM::Chat.new(callback: ChatCallback, model: "gpt-4", provider: :openai)
     #   chat.with_instructions("You are a helpful assistant")
     #   chat.add_message(role: :user, content: "Hello!")
     #   chat.ask
-    #
-    # @example With serialization for multi-turn conversations
-    #   # In completion worker:
-    #   def perform(chat, response)
-    #     chat.add_message(response)
-    #     # Save chat.dump for next turn
-    #   end
     class Chat
       SERIALIZATION_VERSION = 1
 
@@ -41,20 +34,23 @@ module PatientHttp
             schema: data["schema"],
             params: data["params"],
             headers: data["headers"],
+            tools: data["tools"],
             messages: data["messages"]
           )
         end
       end
 
       attr_reader :messages, :model, :provider, :temperature, :thinking_effort, :thinking_budget,
-        :schema, :params, :headers, :callback, :api_base
+        :schema, :params, :headers, :callback, :api_base, :tools
 
       # Initialize a new Chat instance.
       #
       # @param callback [Class, String] The callback instance to handle completion and error events
-      # @param model [String, nil] Model identifier (e.g., "gpt-4", "claude-3-opus")
-      # @param provider [String, Symbol, nil] Provider identifier (e.g., "openai", "anthropic")
-      # @param api_base [String, nil] Override the provider's API base URL (for LM Studio, etc.)
+      # @param model [String, nil] Model identifier (e.g., "gpt-4")
+      # @param provider [String, Symbol, nil] Provider registry key
+      # @param api_base [String, nil] Override the provider's API base URL
+      # @param completion_path [String, nil] Override the completion endpoint path
+      # @param tools [Array, nil] Tool instances for function calling
       def initialize(
         callback:,
         model: nil,
@@ -68,7 +64,8 @@ module PatientHttp
         thinking_budget: nil,
         schema: nil,
         params: nil,
-        headers: nil
+        headers: nil,
+        tools: nil
       )
         @callback = callback
         @model = model
@@ -82,6 +79,7 @@ module PatientHttp
         @schema = nil
         @params = params || {}
         @headers = headers || {}
+        @tools = tools || []
 
         with_instructions(instructions) if instructions
         add_messages(messages) if messages
@@ -152,12 +150,18 @@ module PatientHttp
         self
       end
 
+      # Disable extended thinking mode.
+      #
+      # @return [self]
       def without_thinking
         @thinking_effort = nil
         @thinking_budget = nil
         self
       end
 
+      # Get current thinking configuration.
+      #
+      # @return [Hash, nil]
       def thinking
         if @thinking_effort || @thinking_budget
           {effort: @thinking_effort, budget: @thinking_budget}
@@ -195,6 +199,19 @@ module PatientHttp
         self
       end
 
+      # Set tools for function calling.
+      #
+      # @param tools [Array<Tool>] Tool instances
+      # @return [self]
+      def with_tools(tools)
+        @tools = tools
+        self
+      end
+
+      # Add multiple messages to the conversation.
+      #
+      # @param messages [Array<Hash>] Messages to add
+      # @return [self]
       def add_messages(messages)
         messages.each do |m|
           add_message(m)
@@ -204,13 +221,20 @@ module PatientHttp
 
       # Add a message to the conversation.
       #
-      # @param message_or_attrs [Hash, RubyLLM::Message, String] Message hash or object
+      # @param message_or_attrs [Hash, Message, String] Message hash, Message object, or string
       # @return [self]
       def add_message(message_or_attrs)
         message = if message_or_attrs.is_a?(Hash)
           deserialize_message_hash(message_or_attrs)
         elsif message_or_attrs.respond_to?(:role) && message_or_attrs.respond_to?(:content)
-          {role: message_or_attrs.role.to_sym, content: message_or_attrs.content}
+          hash = {role: message_or_attrs.role.to_sym, content: message_or_attrs.content}
+          if message_or_attrs.respond_to?(:tool_calls) && !message_or_attrs.tool_calls.empty?
+            hash[:tool_calls] = message_or_attrs.tool_calls
+          end
+          if message_or_attrs.respond_to?(:tool_call_id) && message_or_attrs.tool_call_id
+            hash[:tool_call_id] = message_or_attrs.tool_call_id
+          end
+          hash
         else
           {role: :user, content: message_or_attrs.to_s}
         end
@@ -236,12 +260,10 @@ module PatientHttp
       def ask(message = nil, callback_args: {})
         add_message(role: :user, content: message) if message
 
-        model_info, provider_instance = resolve_model_and_provider
-        payload = build_payload(model_info, provider_instance)
+        payload = build_payload
+        base_url, request_headers = resolve_request_config
 
-        base_url = api_base || provider_instance.api_base
         request_url = URI.join(base_url, completion_path).to_s
-        request_headers = provider_instance.headers.merge(headers)
 
         PatientHttp.post(
           request_url,
@@ -280,15 +302,11 @@ module PatientHttp
 
       alias_method :dump, :as_json
 
-      # Get the URL path for the chat completion endpoint. Defaults to the endpoint
-      # defined by the provider if not explicitly set.
+      # Get the URL path for the chat completion endpoint.
       #
-      # @return [String, nil]
+      # @return [String]
       def completion_path
-        return @completion_path if @completion_path
-
-        _model, provider_instance = resolve_model_and_provider
-        provider_instance&.send(:completion_url)
+        @completion_path || "/v1/chat/completions"
       end
 
       private
@@ -296,45 +314,56 @@ module PatientHttp
       def deserialize_message_hash(message_hash)
         role = message_hash[:role] || message_hash["role"]
         content = message_hash[:content] || message_hash["content"]
+        tool_calls = message_hash[:tool_calls] || message_hash["tool_calls"]
+        tool_call_id = message_hash[:tool_call_id] || message_hash["tool_call_id"]
 
         unless role && content && role != "" && content != ""
           raise ArgumentError.new("Message hash must have role and content; actual keys: #{message_hash.keys.join(", ")}")
         end
 
-        {role: role.to_sym, content: content}
+        msg = {role: role.to_sym, content: content}
+        msg[:tool_calls] = tool_calls if tool_calls && !tool_calls.empty?
+        msg[:tool_call_id] = tool_call_id if tool_call_id
+        msg
       end
 
-      # Return the resolved model and provider instance.
-      #
-      # @return [Array(RubyLLM::Model, RubyLLM::Provider)]
-      def resolve_model_and_provider
-        RubyLLM::Models.resolve(@model, provider: @provider, assume_exists: true)
-      end
-
-      def build_payload(model_info, provider_instance)
-        ruby_llm_messages = messages.map { |m| RubyLLM::Message.new(**m) }
-
-        thinking_config = if thinking
-          RubyLLM::Thinking::Config.new(**thinking.transform_keys(&:to_sym))
-        end
-
-        provider_instance.send(
-          :render_payload,
-          ruby_llm_messages,
-          tools: {},
+      def build_payload
+        payload = PayloadBuilder.build(
+          messages: messages,
+          model: model,
+          tools: tools.any? ? tools : nil,
           temperature: temperature,
-          model: model_info,
-          stream: false,
           schema: schema,
-          thinking: thinking_config
-        ).then { |payload| RubyLLM::Utils.deep_merge(payload, params) }
+          thinking: thinking
+        )
+
+        deep_merge(payload, params)
+      end
+
+      def resolve_request_config
+        provider_config = PatientHttp::LLM.provider(provider)
+
+        base_url = api_base || provider_config&.dig(:url)
+        raise ArgumentError, "No API base URL configured. Set api_base on the chat or register a provider." unless base_url
+
+        provider_headers = provider_config&.dig(:headers) || {}
+        request_headers = provider_headers.merge(headers)
+
+        [base_url, request_headers]
       end
 
       def serialize_message(message)
-        {
+        msg = {
           "role" => message[:role].to_s,
           "content" => message[:content]
         }
+        if message[:tool_calls] && !message[:tool_calls].empty?
+          msg["tool_calls"] = deep_stringify_keys(message[:tool_calls])
+        end
+        if message[:tool_call_id]
+          msg["tool_call_id"] = message[:tool_call_id]
+        end
+        msg
       end
 
       def deep_stringify_keys(obj)
@@ -345,6 +374,16 @@ module PatientHttp
           obj.map { |v| deep_stringify_keys(v) }
         else
           obj
+        end
+      end
+
+      def deep_merge(hash1, hash2)
+        hash1.merge(hash2) do |_key, old_val, new_val|
+          if old_val.is_a?(Hash) && new_val.is_a?(Hash)
+            deep_merge(old_val, new_val)
+          else
+            new_val
+          end
         end
       end
     end
