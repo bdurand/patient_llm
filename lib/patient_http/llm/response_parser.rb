@@ -35,7 +35,7 @@ module PatientHttp
           raw_tool_calls.each_with_object({}) do |tc, hash|
             id = tc["id"]
             args = tc.dig("function", "arguments")
-            parsed_args = args ? JSON.parse(args).transform_keys(&:to_sym) : {}
+            parsed_args = parse_arguments(args)
 
             hash[id] = ToolCall.new(
               id: id,
@@ -43,6 +43,17 @@ module PatientHttp
               arguments: parsed_args
             )
           end
+        end
+
+        def parse_arguments(args)
+          return {} if args.nil? || args == ""
+
+          parsed = JSON.parse(args)
+          parsed.is_a?(Hash) ? parsed.transform_keys(&:to_sym) : parsed
+        rescue JSON::ParserError
+          # Model emitted non-JSON arguments; hand back the raw string so the
+          # tool executor can decide how to handle it.
+          args
         end
       end
     end

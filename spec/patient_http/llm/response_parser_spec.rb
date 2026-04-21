@@ -71,6 +71,29 @@ RSpec.describe PatientHttp::LLM::ResponseParser do
       expect(message.output_tokens).to be_nil
     end
 
+    it "preserves raw arguments when JSON is malformed" do
+      body = {
+        "choices" => [
+          {
+            "message" => {
+              "role" => "assistant",
+              "content" => nil,
+              "tool_calls" => [
+                {
+                  "id" => "call_bad",
+                  "type" => "function",
+                  "function" => {"name" => "weather", "arguments" => "{not valid json"}
+                }
+              ]
+            }
+          }
+        ]
+      }
+
+      message = described_class.parse(body)
+      expect(message.tool_calls["call_bad"].arguments).to eq("{not valid json")
+    end
+
     it "handles empty tool_calls" do
       body = {
         "choices" => [

@@ -37,11 +37,6 @@ RSpec.describe PatientHttp::LLM::Chat do
       chat = described_class.new(callback: TestCallback, thinking_effort: "high")
       expect(chat.thinking_effort).to eq("high")
     end
-
-    it "preserves thinking_budget when passed" do
-      chat = described_class.new(callback: TestCallback, thinking_budget: 10000)
-      expect(chat.thinking_budget).to eq(10000)
-    end
   end
 
   describe "#with_instructions" do
@@ -122,19 +117,14 @@ RSpec.describe PatientHttp::LLM::Chat do
   end
 
   describe "#with_thinking" do
-    it "sets thinking with effort" do
+    it "sets thinking effort" do
       chat.with_thinking(effort: "high")
-      expect(chat.thinking).to eq({effort: "high", budget: nil})
+      expect(chat.thinking).to eq({effort: "high"})
     end
 
-    it "sets thinking with budget" do
-      chat.with_thinking(budget: 10000)
-      expect(chat.thinking).to eq({effort: nil, budget: 10000})
-    end
-
-    it "sets thinking with both" do
-      chat.with_thinking(effort: "medium", budget: 5000)
-      expect(chat.thinking).to eq({effort: "medium", budget: 5000})
+    it "stringifies symbol effort" do
+      chat.with_thinking(effort: :medium)
+      expect(chat.thinking).to eq({effort: "medium"})
     end
 
     it "returns self for chaining" do
@@ -144,7 +134,7 @@ RSpec.describe PatientHttp::LLM::Chat do
 
   describe "#without_thinking" do
     it "clears thinking configuration" do
-      chat.with_thinking(effort: "high", budget: 10000)
+      chat.with_thinking(effort: "high")
       chat.without_thinking
       expect(chat.thinking).to be_nil
     end
@@ -294,10 +284,11 @@ RSpec.describe PatientHttp::LLM::Chat do
       ])
       expect(json["temperature"]).to eq(0.8)
       expect(json["thinking_effort"]).to eq("high")
-      expect(json["thinking_budget"]).to be_nil
+      expect(json).not_to have_key("thinking_budget")
       expect(json["schema"]).to eq({"type" => "object"})
       expect(json["params"]).to eq({"top_p" => 0.9})
       expect(json["headers"]).to eq({"X-Custom" => "value"})
+      expect(json["tools"]).to eq([])
     end
 
     it "aliases dump to as_json" do
@@ -318,7 +309,6 @@ RSpec.describe PatientHttp::LLM::Chat do
         ],
         "temperature" => 0.8,
         "thinking_effort" => "high",
-        "thinking_budget" => nil,
         "schema" => {"type" => "object"},
         "params" => {"top_p" => 0.9},
         "headers" => {"X-Custom" => "value"}
@@ -335,7 +325,7 @@ RSpec.describe PatientHttp::LLM::Chat do
         {role: :user, content: "Hello"}
       ])
       expect(loaded.temperature).to eq(0.8)
-      expect(loaded.thinking).to eq({effort: "high", budget: nil})
+      expect(loaded.thinking).to eq({effort: "high"})
       expect(loaded.schema).to eq({"type" => "object"})
       expect(loaded.params).to eq({"top_p" => 0.9})
       expect(loaded.headers).to eq({"X-Custom" => "value"})
@@ -354,6 +344,122 @@ RSpec.describe PatientHttp::LLM::Chat do
 
       loaded = described_class.load(chat.as_json)
       expect(loaded.as_json).to eq(chat.as_json)
+    end
+  end
+
+  describe "tool-call round trip" do
+    let(:tool_call) do
+      PatientHttp::LLM::ToolCall.new(
+        id: "call_1",
+        name: "weather",
+        arguments: {location: "NYC"}
+      )
+    end
+
+    let(:assistant_msg) do
+      PatientHttp::LLM::Message.new(
+        role: :assistant,
+        content: nil,
+        tool_calls: {"call_1" => tool_call}
+      )
+    end
+
+    it "allows assistant messages with nil content + tool_calls to round-trip" do
+      chat.add_message(assistant_msg)
+      chat.add_message(role: :tool, content: "72F", tool_call_id: "call_1")
+
+      loaded = described_class.load(chat.as_json)
+
+      tc_msg = loaded.messages.find { |m| m[:role] == :assistant && m[:tool_calls] }
+      expect(tc_msg[:content]).to be_nil
+      expect(tc_msg[:tool_calls]["call_1"]).to be_a(PatientHttp::LLM::ToolCall)
+      expect(tc_msg[:tool_calls]["call_1"].name).to eq("weather")
+      expect(tc_msg[:tool_calls]["call_1"].arguments).to eq({"location" => "NYC"})
+
+      tool_msg = loaded.messages.find { |m| m[:role] == :tool }
+      expect(tool_msg[:tool_call_id]).to eq("call_1")
+      expect(tool_msg[:content]).to eq("72F")
+    end
+
+    it "serializes tool_calls as plain JSON-native hashes" do
+      chat.add_message(assistant_msg)
+      tool_calls_json = chat.as_json["messages"].last["tool_calls"]
+
+      tc_hash = tool_calls_json["call_1"]
+      expect(tc_hash).to be_a(Hash)
+      expect(tc_hash["name"]).to eq("weather")
+      expect(tc_hash["arguments"]).to eq({"location" => "NYC"})
+    end
+
+    it "builds a correct payload after a load cycle" do
+      chat.add_message(assistant_msg)
+      chat.add_message(role: :tool, content: "72F", tool_call_id: "call_1")
+
+      loaded = described_class.load(chat.as_json)
+      payload = loaded.send(:build_payload)
+
+      assistant = payload[:messages].find { |m| m[:role] == "assistant" }
+      expect(assistant[:tool_calls][0][:function][:name]).to eq("weather")
+      expect(JSON.parse(assistant[:tool_calls][0][:function][:arguments])).to eq({"location" => "NYC"})
+    end
+
+    it "raises when a message hash is missing role, content, tool_calls, and tool_call_id" do
+      expect {
+        chat.add_message(role: :user)
+      }.to raise_error(ArgumentError, /must have content, tool_calls, or tool_call_id/)
+    end
+  end
+
+  describe "tool persistence" do
+    before do
+      stub_const(
+        "PersistedTool",
+        Class.new(PatientHttp::LLM::Tool) do
+          description "persisted"
+        end
+      )
+    end
+
+    it "serializes tools as class names" do
+      chat.with_tools([PersistedTool.new])
+      expect(chat.as_json["tools"]).to eq(["PersistedTool"])
+    end
+
+    it "rehydrates tools from class names" do
+      chat.with_tools([PersistedTool.new])
+      loaded = described_class.load(chat.as_json)
+      expect(loaded.tools.map { |t| t.class }).to eq([PersistedTool])
+    end
+
+    it "accepts Tool classes directly via with_tools" do
+      chat.with_tools([PersistedTool])
+      expect(chat.tools.map(&:class)).to eq([PersistedTool])
+    end
+
+    it "raises for an unknown tool class name" do
+      expect {
+        described_class.load("callback" => "TestCallback", "tools" => ["NoSuchTool"])
+      }.to raise_error(NameError)
+    end
+  end
+
+  describe "URL composition" do
+    it "joins api_base and completion_path with a single slash, preserving base path" do
+      chat.with_api_base("http://localhost:1234/api/v1")
+      url = chat.send(:join_url, chat.api_base, "/v1/chat/completions")
+      expect(url).to eq("http://localhost:1234/api/v1/v1/chat/completions")
+    end
+
+    it "normalizes trailing slash on base" do
+      chat.with_api_base("http://localhost:1234/")
+      url = chat.send(:join_url, chat.api_base, "/v1/chat/completions")
+      expect(url).to eq("http://localhost:1234/v1/chat/completions")
+    end
+
+    it "normalizes missing leading slash on path" do
+      chat.with_api_base("http://localhost:1234")
+      url = chat.send(:join_url, chat.api_base, "v1/chat/completions")
+      expect(url).to eq("http://localhost:1234/v1/chat/completions")
     end
   end
 end

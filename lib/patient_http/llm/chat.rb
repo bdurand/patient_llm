@@ -29,8 +29,7 @@ module PatientHttp
             api_base: data["api_base"],
             completion_path: data["completion_path"],
             temperature: data["temperature"],
-            thinking_effort: data.dig("thinking_effort"),
-            thinking_budget: data.dig("thinking_budget"),
+            thinking_effort: data["thinking_effort"],
             schema: data["schema"],
             params: data["params"],
             headers: data["headers"],
@@ -40,17 +39,24 @@ module PatientHttp
         end
       end
 
-      attr_reader :messages, :model, :provider, :temperature, :thinking_effort, :thinking_budget,
+      attr_reader :messages, :model, :provider, :temperature, :thinking_effort,
         :schema, :params, :headers, :callback, :api_base, :tools
 
       # Initialize a new Chat instance.
       #
-      # @param callback [Class, String] The callback instance to handle completion and error events
+      # @param callback [Class, String] The callback class whose instance handles completion and error events
       # @param model [String, nil] Model identifier (e.g., "gpt-4")
       # @param provider [String, Symbol, nil] Provider registry key
       # @param api_base [String, nil] Override the provider's API base URL
       # @param completion_path [String, nil] Override the completion endpoint path
-      # @param tools [Array, nil] Tool instances for function calling
+      # @param instructions [String, nil] Optional system instructions to prepend
+      # @param messages [Array<Hash>, nil] Prior messages (used by load)
+      # @param temperature [Float, nil] Sampling temperature
+      # @param thinking_effort [String, Symbol, nil] Reasoning effort ("low", "medium", "high")
+      # @param schema [Hash, Object, nil] JSON schema for structured output
+      # @param params [Hash, nil] Provider-specific parameters
+      # @param headers [Hash, nil] Custom HTTP headers
+      # @param tools [Array<Tool, String, Class>, nil] Tool instances or class names
       def initialize(
         callback:,
         model: nil,
@@ -61,7 +67,6 @@ module PatientHttp
         messages: nil,
         temperature: nil,
         thinking_effort: nil,
-        thinking_budget: nil,
         schema: nil,
         params: nil,
         headers: nil,
@@ -75,11 +80,10 @@ module PatientHttp
         @messages = []
         @temperature = temperature
         @thinking_effort = thinking_effort&.to_s
-        @thinking_budget = thinking_budget
         @schema = nil
         @params = params || {}
         @headers = headers || {}
-        @tools = tools || []
+        @tools = resolve_tools(tools)
 
         with_instructions(instructions) if instructions
         add_messages(messages) if messages
@@ -139,14 +143,12 @@ module PatientHttp
         self
       end
 
-      # Enable extended thinking mode.
+      # Enable extended thinking / reasoning for supported models (e.g. OpenAI o1/o3).
       #
-      # @param effort [String, Symbol, nil] Thinking effort level (e.g., "high", "medium", "low")
-      # @param budget [Integer, nil] Token budget for thinking
+      # @param effort [String, Symbol, nil] Reasoning effort level ("low", "medium", "high")
       # @return [self]
-      def with_thinking(effort: nil, budget: nil)
+      def with_thinking(effort:)
         @thinking_effort = effort&.to_s
-        @thinking_budget = budget
         self
       end
 
@@ -155,7 +157,6 @@ module PatientHttp
       # @return [self]
       def without_thinking
         @thinking_effort = nil
-        @thinking_budget = nil
         self
       end
 
@@ -163,9 +164,7 @@ module PatientHttp
       #
       # @return [Hash, nil]
       def thinking
-        if @thinking_effort || @thinking_budget
-          {effort: @thinking_effort, budget: @thinking_budget}
-        end
+        {effort: @thinking_effort} if @thinking_effort
       end
 
       # Set a JSON schema for structured output.
@@ -192,6 +191,11 @@ module PatientHttp
 
       # Add custom HTTP headers.
       #
+      # Do not put secrets (e.g. Authorization tokens) here: chat state is
+      # serialized into the job queue along with these headers. Configure
+      # provider-level headers via `PatientHttp::LLM.configure` instead —
+      # those are re-attached at request time and never persisted.
+      #
       # @param headers [Hash] Headers to merge
       # @return [self]
       def with_headers(headers)
@@ -204,7 +208,7 @@ module PatientHttp
       # @param tools [Array<Tool>] Tool instances
       # @return [self]
       def with_tools(tools)
-        @tools = tools
+        @tools = resolve_tools(tools)
         self
       end
 
@@ -256,14 +260,14 @@ module PatientHttp
       #
       # @param message [String, nil] Optional message to add before asking
       # @param callback_args [Hash] Custom arguments to pass to callback workers
-      # @return [String] Request id that will be used when making the request
-      def ask(message = nil, callback_args: {})
+      # @return [Object] Handler-specific identifier for the enqueued request (usually a request id String)
+      def ask(message = nil, callback_args: {}, tool_iteration: 0)
         add_message(role: :user, content: message) if message
 
         payload = build_payload
         base_url, request_headers = resolve_request_config
 
-        request_url = URI.join(base_url, completion_path).to_s
+        request_url = join_url(base_url, completion_path)
 
         PatientHttp.post(
           request_url,
@@ -274,12 +278,17 @@ module PatientHttp
           callback_args: {
             chat: as_json,
             chat_callback: @callback&.to_s,
-            custom: deep_stringify_keys(callback_args)
+            custom: CallbackArgs.deep_stringify_keys(callback_args),
+            tool_iteration: tool_iteration
           }
         )
       end
 
       # Serialize the chat to a JSON-compatible hash.
+      #
+      # Tool instances are stored by class name so they can be rehydrated via
+      # `Chat.load`. Tool classes must be loadable (e.g. via autoload) at
+      # callback-execution time.
       #
       # @return [Hash]
       def as_json
@@ -293,10 +302,10 @@ module PatientHttp
           "messages" => messages.map { |m| serialize_message(m) },
           "temperature" => temperature,
           "thinking_effort" => @thinking_effort,
-          "thinking_budget" => @thinking_budget,
-          "schema" => deep_stringify_keys(schema),
-          "params" => deep_stringify_keys(params),
-          "headers" => deep_stringify_keys(headers)
+          "schema" => CallbackArgs.deep_stringify_keys(schema),
+          "params" => CallbackArgs.deep_stringify_keys(params),
+          "headers" => CallbackArgs.deep_stringify_keys(headers),
+          "tools" => tools.map { |t| t.class.name }
         }
       end
 
@@ -317,14 +326,32 @@ module PatientHttp
         tool_calls = message_hash[:tool_calls] || message_hash["tool_calls"]
         tool_call_id = message_hash[:tool_call_id] || message_hash["tool_call_id"]
 
-        unless role && content && role != "" && content != ""
-          raise ArgumentError.new("Message hash must have role and content; actual keys: #{message_hash.keys.join(", ")}")
+        unless role && role != ""
+          raise ArgumentError.new("Message hash must have a role; actual keys: #{message_hash.keys.join(", ")}")
+        end
+
+        has_content = !content.nil? && content != ""
+        has_tool_calls = tool_calls && !tool_calls.empty?
+        has_tool_call_id = tool_call_id && tool_call_id != ""
+
+        unless has_content || has_tool_calls || has_tool_call_id
+          raise ArgumentError.new("Message hash must have content, tool_calls, or tool_call_id; actual keys: #{message_hash.keys.join(", ")}")
         end
 
         msg = {role: role.to_sym, content: content}
-        msg[:tool_calls] = tool_calls if tool_calls && !tool_calls.empty?
-        msg[:tool_call_id] = tool_call_id if tool_call_id
+        msg[:tool_calls] = normalize_tool_calls(tool_calls) if has_tool_calls
+        msg[:tool_call_id] = tool_call_id if has_tool_call_id
         msg
+      end
+
+      def normalize_tool_calls(tool_calls)
+        tool_calls.each_with_object({}) do |(id, tc), hash|
+          hash[id.to_s] = if tc.is_a?(ToolCall)
+            tc
+          else
+            ToolCall.load(id.to_s, tc)
+          end
+        end
       end
 
       def build_payload
@@ -352,13 +379,21 @@ module PatientHttp
         [base_url, request_headers]
       end
 
+      # Join an API base URL and a path by stripping the base's trailing slash
+      # and the path's leading slash, then joining with a single "/". This
+      # preserves any path prefix on the base (unlike URI.join with absolute
+      # paths, which would discard it).
+      def join_url(base, path)
+        "#{base.sub(%r{/\z}, "")}/#{path.to_s.sub(%r{\A/}, "")}"
+      end
+
       def serialize_message(message)
         msg = {
           "role" => message[:role].to_s,
           "content" => message[:content]
         }
         if message[:tool_calls] && !message[:tool_calls].empty?
-          msg["tool_calls"] = deep_stringify_keys(message[:tool_calls])
+          msg["tool_calls"] = serialize_tool_calls(message[:tool_calls])
         end
         if message[:tool_call_id]
           msg["tool_call_id"] = message[:tool_call_id]
@@ -366,14 +401,32 @@ module PatientHttp
         msg
       end
 
-      def deep_stringify_keys(obj)
-        case obj
-        when Hash
-          obj.transform_keys(&:to_s).transform_values { |v| deep_stringify_keys(v) }
-        when Array
-          obj.map { |v| deep_stringify_keys(v) }
-        else
-          obj
+      def serialize_tool_calls(tool_calls)
+        tool_calls.each_with_object({}) do |(id, tc), hash|
+          hash[id.to_s] = if tc.is_a?(ToolCall)
+            tc.as_json
+          else
+            CallbackArgs.deep_stringify_keys(tc)
+          end
+        end
+      end
+
+      def resolve_tools(tools)
+        return [] if tools.nil? || tools.empty?
+
+        tools.map do |t|
+          case t
+          when Tool
+            t
+          when Class
+            t.new
+          when String
+            klass = PatientHttp::ClassHelper.resolve_class_name(t)
+            raise ArgumentError.new("Could not resolve tool class: #{t.inspect}") unless klass
+            klass.new
+          else
+            raise ArgumentError.new("Tool must be a Tool instance, Class, or class name String; got #{t.class.name}")
+          end
         end
       end
 

@@ -14,7 +14,7 @@ module PatientHttp
         # @param tools [Array, nil] Tool instances
         # @param temperature [Float, nil] Temperature value
         # @param schema [Hash, nil] JSON schema for structured output
-        # @param thinking [Hash, nil] Thinking configuration with :effort and/or :budget keys
+        # @param thinking [Hash, nil] Thinking configuration with :effort key
         # @return [Hash]
         def build(messages:, model:, tools: nil, temperature: nil, schema: nil, thinking: nil)
           payload = {model: model}
@@ -34,9 +34,8 @@ module PatientHttp
             }
           end
 
-          if thinking
-            payload[:reasoning_effort] = thinking[:effort] if thinking[:effort]
-            payload[:max_completion_tokens] = thinking[:budget] if thinking[:budget]
+          if thinking && thinking[:effort]
+            payload[:reasoning_effort] = thinking[:effort]
           end
 
           payload
@@ -51,12 +50,18 @@ module PatientHttp
 
           if message[:tool_calls] && !message[:tool_calls].empty?
             msg[:tool_calls] = message[:tool_calls].map do |id, tc|
+              name, arguments = if tc.is_a?(ToolCall)
+                [tc.name, tc.arguments]
+              else
+                [tc[:name] || tc["name"], tc[:arguments] || tc["arguments"]]
+              end
+
               {
                 id: id,
                 type: "function",
                 function: {
-                  name: tc[:name] || tc["name"],
-                  arguments: (tc[:arguments] || tc["arguments"]).to_json
+                  name: name,
+                  arguments: arguments.is_a?(String) ? arguments : JSON.generate(arguments)
                 }
               }
             end

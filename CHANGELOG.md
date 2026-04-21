@@ -8,4 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial release with support for OpenAI's Chat API.
+- Initial implementation: async OpenAI Chat Completions calls via `patient_http`.
+- Tool calling with automatic execution loop and `halt` short-circuit.
+- Provider registry, JSON-schema structured output, reasoning effort, custom headers/params.
+- Chat state serialization/restoration including tool-call history and registered tools.

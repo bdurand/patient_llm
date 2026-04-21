@@ -78,21 +78,19 @@ RSpec.describe PatientHttp::LLM::PayloadBuilder do
       payload = described_class.build(
         messages: [{role: :user, content: "Hello"}],
         model: "gpt-4",
-        thinking: {effort: "high", budget: nil}
+        thinking: {effort: "high"}
       )
 
       expect(payload[:reasoning_effort]).to eq("high")
-      expect(payload).not_to have_key(:max_completion_tokens)
     end
 
-    it "maps thinking budget to max_completion_tokens" do
+    it "omits reasoning_effort when effort is nil" do
       payload = described_class.build(
         messages: [{role: :user, content: "Hello"}],
         model: "gpt-4",
-        thinking: {effort: nil, budget: 10000}
+        thinking: {effort: nil}
       )
 
-      expect(payload[:max_completion_tokens]).to eq(10000)
       expect(payload).not_to have_key(:reasoning_effort)
     end
 
@@ -115,6 +113,28 @@ RSpec.describe PatientHttp::LLM::PayloadBuilder do
       expect(assistant_msg[:tool_calls][0][:id]).to eq("call_123")
       expect(assistant_msg[:tool_calls][0][:type]).to eq("function")
       expect(assistant_msg[:tool_calls][0][:function][:name]).to eq("weather")
+    end
+
+    it "handles tool_calls whose values are ToolCall objects" do
+      tool_call = PatientHttp::LLM::ToolCall.new(
+        id: "call_abc",
+        name: "weather",
+        arguments: {location: "NYC"}
+      )
+      messages = [
+        {
+          role: :assistant,
+          content: nil,
+          tool_calls: {"call_abc" => tool_call}
+        }
+      ]
+
+      payload = described_class.build(messages: messages, model: "gpt-4")
+      tc = payload[:messages][0][:tool_calls][0]
+
+      expect(tc[:id]).to eq("call_abc")
+      expect(tc[:function][:name]).to eq("weather")
+      expect(JSON.parse(tc[:function][:arguments])).to eq({"location" => "NYC"})
     end
 
     it "handles messages with tool_call_id" do

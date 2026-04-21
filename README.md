@@ -12,6 +12,15 @@ LLM API calls can take a long time to complete. With traditional synchronous HTT
 
 Many LLM providers support the OpenAI API format natively. For providers that use a different API format (Anthropic, Google, etc.), you can use a proxy like [LiteLLM](https://github.com/BerriAI/litellm) to translate requests into the OpenAI format.
 
+## Prerequisites
+
+This gem delegates actual HTTP dispatch to `patient_http`, which requires a registered request handler before any `chat.ask` call will succeed. In a normal app you get this handler by adding one of the job-system integrations:
+
+- [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq)
+- [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue)
+
+Without a handler, `chat.ask` raises `RuntimeError: No request handler registered`.
+
 ## Usage
 
 ### Configuration
@@ -25,6 +34,11 @@ PatientHttp::LLM.configure do |config|
     headers: {"Authorization" => "Bearer #{ENV["OPENAI_API_KEY"]}"}
 end
 ```
+
+> [!NOTE]
+> Authentication headers configured on the provider are re-attached to every request at dispatch time and are persisted in the asynchronous job payload.
+>
+> You should set up encryption for you job payloads to prevent leaking credentials. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
 
 ### Creating a Callback Class
 
@@ -46,16 +60,18 @@ class LLMCallback
     puts "Tokens: #{message.input_tokens} in / #{message.output_tokens} out"
     puts "Duration: #{response.duration}s"
 
-    # Access your custom callback args
-    user_id = callback_args[:user_id]
-
     # Save the chat state for future turns
-    save_chat_state(user_id, chat.as_json)
+    save_chat_state(callback_args[:user_id], chat.as_json)
   end
 
   def on_error(chat, callback_args, error)
-    # error - contains error_type, message, and error_class
-    # chat  - the Chat instance for context
+    # error is a PatientHttp::RequestError, ClientError (HTTP 4xx),
+    # or ServerError (HTTP 5xx). All respond to:
+    #   error.error_type  - :timeout, :connection, :ssl, :http_error, etc.
+    #   error.message     - human-readable message
+    #   error.error_class - the original exception class (for RequestError)
+    #   error.request_id
+    # HTTP errors additionally expose error.response (a PatientHttp::Response).
 
     log_error(error.error_type, error.message)
   end
@@ -96,8 +112,8 @@ chat.with_model("gpt-4o", provider: :openai)
 # Set temperature
 chat.with_temperature(0.7)
 
-# Enable extended thinking (for supported models)
-chat.with_thinking(effort: "high", budget: 10000)
+# Enable reasoning for supported models (OpenAI o1/o3 family)
+chat.with_thinking(effort: "high")
 
 # Set a JSON schema for structured output
 chat.with_schema({
@@ -108,14 +124,90 @@ chat.with_schema({
   }
 })
 
-# Add provider-specific parameters
-chat.with_params(max_tokens: 1000)
+# Add provider-specific parameters (deep-merged into the final payload)
+chat.with_params(max_completion_tokens: 1000)
 
 # Add custom HTTP headers
+# NOTE: do NOT put secrets here — chat state is serialized into the job queue.
+# Use the provider registry for Authorization tokens instead.
 chat.with_headers("X-Custom-Header" => "value")
 
 # Use a custom API base URL (for LM Studio, Ollama, etc.)
-chat.with_api_base("http://localhost:1234/v1")
+chat.with_api_base("http://localhost:1234")
+
+# Register tools for function calling (see "Tool calling" below)
+chat.with_tools([WeatherTool, TimeTool])
+```
+
+### URL composition
+
+The full request URL is built by concatenating the `api_base` (from the chat or provider registry) with the chat's `completion_path` (default `/v1/chat/completions`). Trailing slashes on the base and leading slashes on the path are normalized, so:
+
+```
+api_base = "https://api.openai.com"            completion_path = "/v1/chat/completions"
+-> https://api.openai.com/v1/chat/completions
+
+api_base = "http://localhost:1234"             completion_path = "/v1/chat/completions"
+-> http://localhost:1234/v1/chat/completions
+```
+
+If your base URL already includes a `/v1` prefix, override the completion path to avoid duplication:
+
+```ruby
+chat.with_api_base("https://my-gateway.internal/openai/v1")
+chat.instance_variable_set(:@completion_path, "/chat/completions")
+# ... or use Chat.new(completion_path: "/chat/completions", ...)
+```
+
+### Tool calling
+
+Subclass `PatientHttp::LLM::Tool` to define tools:
+
+```ruby
+class WeatherTool < PatientHttp::LLM::Tool
+  description "Get the current weather for a location"
+  param :location, type: "string", desc: "City name"
+
+  def execute(location:)
+    WeatherService.lookup(location)  # returns a String or JSON-serializable object
+  end
+end
+```
+
+Register tools on the chat and ask normally:
+
+```ruby
+chat = PatientHttp::LLM::Chat.new(callback: LLMCallback, model: "gpt-4o", provider: :openai)
+chat.with_tools([WeatherTool])
+chat.ask("What's the weather in NYC?")
+```
+
+When the model responds with tool calls, the gem automatically:
+
+1. Appends the assistant tool-call message to the chat.
+2. Invokes each matching tool's `#execute` with the LLM-provided arguments.
+3. Appends a tool-response message for each tool call.
+4. Re-issues the chat request asynchronously.
+5. Repeats until the model returns a plain text response (or a tool returns `halt`). Your `on_complete` callback only fires for the final text response.
+
+The loop is capped at `PatientHttp::LLM::Callback::MAX_TOOL_ITERATIONS` (10) iterations per conversation to prevent runaway calls. Exceeding the cap raises inside the callback and surfaces via your error handler.
+
+**Tool classes must be autoloadable** at the time the callback fires, since chat state is persisted across async turns by storing class names.
+
+#### Halting the loop
+
+Return `halt(...)` from a tool's `execute` method to stop the auto-loop and surface the halt content as the final assistant message:
+
+```ruby
+class AuthTool < PatientHttp::LLM::Tool
+  description "Authenticates the user"
+  param :token, type: "string", desc: "Auth token"
+
+  def execute(token:)
+    return halt("Authentication failed.") unless AuthService.valid?(token)
+    AuthService.session_info(token)
+  end
+end
 ```
 
 ### Serializing Conversations
@@ -140,22 +232,19 @@ chat = PatientHttp::LLM::Chat.load(chat_data)
 chat.ask("Tell me more about that.", callback_args: { conversation_id: conversation_id })
 ```
 
+Serialized chats include messages, tool-call history, provider/model settings, and registered tool class names. They do **not** include provider-level Authorization headers.
+
 ## Installation
 
-Add this line to your application's Gemfile:
+This gem is not yet published to RubyGems. Add it from GitHub:
 
 ```ruby
-gem "patient_http-llm"
+gem "patient_http-llm", github: "bdurand/patient_http-llm"
 ```
 
 Then execute:
 ```bash
 $ bundle
-```
-
-Or install it yourself as:
-```bash
-$ gem install patient_http-llm
 ```
 
 ## Contributing
