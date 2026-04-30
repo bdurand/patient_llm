@@ -4,7 +4,7 @@ require "bundler/setup"
 Bundler.require
 
 require "sidekiq"
-require "patient_http-llm"
+require "patient_llm"
 
 require_relative "app_config"
 
@@ -22,7 +22,7 @@ Sidekiq.configure_client do |config|
 end
 
 # Configure LLM providers
-PatientHttp::LLM.configure do |config|
+PatientLLM.configure do |config|
   config.provider :openai,
     url: AppConfig.llm_api_base,
     headers: {}

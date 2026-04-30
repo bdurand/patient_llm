@@ -2,7 +2,7 @@
 
 require "bundler/setup"
 
-require_relative "../lib/patient_http-llm"
+require_relative "../lib/patient_llm"
 
 # Mock callback class for testing
 class TestCallback
@@ -14,7 +14,7 @@ class TestCallback
 end
 
 # Configure a test provider
-PatientHttp::LLM.configure do |config|
+PatientLLM.configure do |config|
   config.provider :openai,
     url: "https://api.openai.com",
     headers: {"Authorization" => "Bearer test-key"},

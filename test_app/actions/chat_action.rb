@@ -26,7 +26,7 @@ class ChatAction
 
     if params["api_path"] && !params["api_path"].empty?
       completion_path_override = params["api_path"]
-      serializer_override = PatientHttp::LLM::SERIALIZER_PATHS.key(completion_path_override)
+      serializer_override = PatientLLM::SERIALIZER_PATHS.key(completion_path_override)
     end
 
     # Load existing session or create new one
@@ -74,7 +74,7 @@ class ChatAction
     # Add the user message
     session.user(user_message)
 
-    request_id = PatientHttp::LLM.ask(
+    request_id = PatientLLM.ask(
       session,
       provider: :openai,
       callback: LLMCallback,

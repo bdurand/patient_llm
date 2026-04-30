@@ -1,12 +1,12 @@
 Gem::Specification.new do |spec|
-  spec.name = "patient_http-llm"
+  spec.name = "patient_llm"
   spec.version = File.read(File.expand_path("../VERSION", __FILE__)).strip
   spec.authors = ["Brian Durand"]
   spec.email = ["bbdurand@gmail.com"]
 
   spec.summary = "Asynchronous LLM API requests via patient_http using prompt_builder for multi-format LLM API support."
 
-  spec.homepage = "https://github.com/bdurand/patient_http-llm"
+  spec.homepage = "https://github.com/bdurand/patient_llm"
   spec.license = "MIT"
 
   spec.metadata = {

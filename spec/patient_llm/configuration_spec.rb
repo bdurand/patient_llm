@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe PatientHttp::LLM::Configuration do
+RSpec.describe PatientLLM::Configuration do
   let(:config) { described_class.new }
 
   describe "#provider" do
@@ -78,36 +78,36 @@ RSpec.describe PatientHttp::LLM::Configuration do
   end
 end
 
-RSpec.describe PatientHttp::LLM do
+RSpec.describe PatientLLM do
   describe ".configure" do
     it "yields a Configuration instance" do
-      PatientHttp::LLM.configure do |config|
-        expect(config).to be_a(PatientHttp::LLM::Configuration)
+      PatientLLM.configure do |config|
+        expect(config).to be_a(PatientLLM::Configuration)
       end
     end
   end
 
   describe ".provider" do
     it "looks up a registered provider" do
-      result = PatientHttp::LLM.provider(:openai)
+      result = PatientLLM.provider(:openai)
       expect(result[:url]).to eq("https://api.openai.com")
     end
 
     it "returns nil for unregistered providers" do
-      expect(PatientHttp::LLM.provider(:nonexistent)).to be_nil
+      expect(PatientLLM.provider(:nonexistent)).to be_nil
     end
   end
 
   describe ".reset!" do
     it "clears all providers" do
-      PatientHttp::LLM.configure { |c| c.provider :temp, url: "http://temp" }
-      expect(PatientHttp::LLM.provider(:temp)).not_to be_nil
+      PatientLLM.configure { |c| c.provider :temp, url: "http://temp" }
+      expect(PatientLLM.provider(:temp)).not_to be_nil
 
-      PatientHttp::LLM.reset!
-      expect(PatientHttp::LLM.provider(:temp)).to be_nil
+      PatientLLM.reset!
+      expect(PatientLLM.provider(:temp)).to be_nil
 
       # Re-register the test provider used by other specs
-      PatientHttp::LLM.configure do |c|
+      PatientLLM.configure do |c|
         c.provider :openai,
           url: "https://api.openai.com",
           headers: {"Authorization" => "Bearer test-key"},
@@ -130,7 +130,7 @@ RSpec.describe PatientHttp::LLM do
 
       PatientHttp.register_handler(fake_handler)
       begin
-        PatientHttp::LLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :messages)
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :messages)
         expect(captured.headers["anthropic-version"]).to eq("2023-06-01")
       ensure
         PatientHttp.unregister_handler
@@ -146,7 +146,7 @@ RSpec.describe PatientHttp::LLM do
 
       PatientHttp.register_handler(fake_handler)
       begin
-        PatientHttp::LLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :messages, headers: {"anthropic-version" => "2024-01-01"})
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :messages, headers: {"anthropic-version" => "2024-01-01"})
         expect(captured.headers["anthropic-version"]).to eq("2024-01-01")
       ensure
         PatientHttp.unregister_handler
@@ -155,7 +155,7 @@ RSpec.describe PatientHttp::LLM do
 
     it "raises for an invalid serializer override" do
       expect {
-        PatientHttp::LLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :invalid)
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback", serializer: :invalid)
       }.to raise_error(ArgumentError, /Unknown serializer.*:invalid/)
     end
 
@@ -168,7 +168,7 @@ RSpec.describe PatientHttp::LLM do
 
       PatientHttp.register_handler(fake_handler)
       begin
-        PatientHttp::LLM.ask(session, provider: :openai, callback: "TestCallback")
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
         expect(captured.headers["anthropic-version"]).to be_nil
       ensure
         PatientHttp.unregister_handler

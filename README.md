@@ -1,10 +1,10 @@
-# PatientHttp::LLM
+# PatientLLM
 
 :construction: NOT RELEASED :construction:
 
-[![Continuous Integration](https://github.com/bdurand/patient_http-llm/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/bdurand/patient_http-llm/actions/workflows/continuous_integration.yml)
+[![Continuous Integration](https://github.com/bdurand/patient_llm/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/bdurand/patient_llm/actions/workflows/continuous_integration.yml)
 [![Ruby Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://github.com/testdouble/standard)
-[![Gem Version](https://badge.fury.io/rb/patient_http-llm.svg)](https://badge.fury.io/rb/patient_http-llm)
+[![Gem Version](https://badge.fury.io/rb/patient_llm.svg)](https://badge.fury.io/rb/patient_llm)
 
 Integrate LLM APIs with your Ruby backend applications without blocking threads. This gem uses asynchronous HTTP requests to call LLM providers and handles the response via callbacks. It supports multiple API formats natively via [PromptBuilder](https://github.com/bdurand/prompt_builder) serializers:
 
@@ -30,7 +30,7 @@ Without a handler, `LLM.ask` raises `RuntimeError: No request handler registered
 Register your LLM providers with their API base URLs and authentication headers:
 
 ```ruby
-PatientHttp::LLM.configure do |config|
+PatientLLM.configure do |config|
   config.provider :openai,
     url: "https://api.openai.com",
     headers: {"Authorization" => "Bearer #{ENV["OPENAI_API_KEY"]}"}
@@ -85,20 +85,20 @@ end
 
 ### Making LLM Requests
 
-Create a `PromptBuilder::Session` and call `PatientHttp::LLM.ask` to make an async request:
+Create a `PromptBuilder::Session` and call `PatientLLM.ask` to make an async request:
 
 ```ruby
 session = PromptBuilder::Session.new(model: "gpt-4o")
 session.instructions = "You are a helpful assistant."
 session.user("What is the capital of France?")
 
-PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback)
+PatientLLM.ask(session, provider: :openai, callback: LLMCallback)
 ```
 
 You can pass custom data to your callback using `callback_args`:
 
 ```ruby
-PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback, callback_args: {
+PatientLLM.ask(session, provider: :openai, callback: LLMCallback, callback_args: {
   user_id: current_user.id,
   conversation_id: conversation.id
 })
@@ -143,10 +143,10 @@ session.text = {
 session.max_output_tokens = 1000
 ```
 
-`PatientHttp::LLM.ask` accepts additional options:
+`PatientLLM.ask` accepts additional options:
 
 ```ruby
-PatientHttp::LLM.ask(session,
+PatientLLM.ask(session,
   provider: :openai,
   callback: LLMCallback,
   url: "http://localhost:1234",           # Override the provider's base URL
@@ -172,7 +172,7 @@ url = "http://localhost:1234"             completion_path = "/v1/chat/completion
 If your base URL already includes a `/v1` prefix, override the completion path to avoid duplication:
 
 ```ruby
-PatientHttp::LLM.ask(session,
+PatientLLM.ask(session,
   provider: :openai,
   callback: LLMCallback,
   url: "https://my-gateway.internal/openai/v1",
@@ -210,7 +210,7 @@ session.register_tool("weather",
 )
 session.user("What's the weather in NYC?")
 
-PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback)
+PatientLLM.ask(session, provider: :openai, callback: LLMCallback)
 ```
 
 When the model responds with tool calls, the gem automatically:
@@ -221,19 +221,19 @@ When the model responds with tool calls, the gem automatically:
 4. Re-issues the request asynchronously.
 5. Repeats until the model returns a plain text response (or a tool raises `HaltError`). Your `on_complete` callback only fires for the final text response.
 
-The loop is capped at `PatientHttp::LLM::Callback::MAX_TOOL_ITERATIONS` (10) iterations per conversation to prevent runaway calls. Exceeding the cap raises inside the callback and surfaces via your error handler.
+The loop is capped at `PatientLLM::Callback::MAX_TOOL_ITERATIONS` (10) iterations per conversation to prevent runaway calls. Exceeding the cap raises inside the callback and surfaces via your error handler.
 
 > [!NOTE]
 > Tool handlers execute synchronously inside the callback worker (e.g. a Sidekiq job). Keep handlers fast to avoid blocking the worker pool. If a tool needs to do slow work (external API calls, heavy queries), consider offloading that work and using `HaltError` to stop the auto-loop.
 
 #### Halting the loop
 
-Raise `PatientHttp::LLM::HaltError` from a tool handler to stop the auto-loop and surface custom content as the final assistant message:
+Raise `PatientLLM::HaltError` from a tool handler to stop the auto-loop and surface custom content as the final assistant message:
 
 ```ruby
 PromptBuilder.tool_registry.register("auth", description: "Authenticate", parameters: {...}) do |args|
   unless AuthService.valid?(args["token"])
-    raise PatientHttp::LLM::HaltError.new("Authentication failed.")
+    raise PatientLLM::HaltError.new("Authentication failed.")
   end
   AuthService.session_info(args["token"])
 end
@@ -249,7 +249,7 @@ session = PromptBuilder::Session.new(model: "gpt-4o")
 session.instructions = "You are a helpful assistant."
 session.user("Hello!")
 
-PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback,
+PatientLLM.ask(session, provider: :openai, callback: LLMCallback,
   callback_args: {conversation_id: conversation.id})
 
 # In your callback, save the state (response is already in the session):
@@ -262,7 +262,7 @@ session_data = load_from_database(conversation_id)
 session = PromptBuilder::Session.from_h(session_data)
 session.user("Tell me more about that.")
 
-PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback,
+PatientLLM.ask(session, provider: :openai, callback: LLMCallback,
   callback_args: {conversation_id: conversation_id})
 ```
 
@@ -271,7 +271,7 @@ PatientHttp::LLM.ask(session, provider: :openai, callback: LLMCallback,
 This gem is not yet published to RubyGems. Add it from GitHub:
 
 ```ruby
-gem "patient_http-llm", github: "bdurand/patient_http-llm"
+gem "patient_llm", github: "bdurand/patient_llm"
 ```
 
 Then execute:
@@ -281,7 +281,7 @@ $ bundle
 
 ## Contributing
 
-Open a pull request on [GitHub](https://github.com/bdurand/patient_http-llm).
+Open a pull request on [GitHub](https://github.com/bdurand/patient_llm).
 
 Please use the [standardrb](https://github.com/testdouble/standard) syntax and lint your code with `standardrb --fix` before submitting.
 

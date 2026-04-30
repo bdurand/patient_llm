@@ -2,7 +2,7 @@
 
 require "spec_helper"
 
-RSpec.describe PatientHttp::LLM::Callback do
+RSpec.describe PatientLLM::Callback do
   let(:callback) { described_class.new }
 
   let(:session_hash) do
@@ -297,7 +297,7 @@ RSpec.describe PatientHttp::LLM::Callback do
     end
 
     it "raises when MAX_TOOL_ITERATIONS is exceeded" do
-      args = callback_args_with_tools.merge(tool_iteration: PatientHttp::LLM::Callback::MAX_TOOL_ITERATIONS)
+      args = callback_args_with_tools.merge(tool_iteration: PatientLLM::Callback::MAX_TOOL_ITERATIONS)
       response = PatientHttp::Response.new(
         callback_args: args,
         http_method: :post,
@@ -390,7 +390,7 @@ RSpec.describe PatientHttp::LLM::Callback do
     it "handles HaltError with nil content gracefully" do
       PromptBuilder.reset_tool_registry!
       PromptBuilder.register_tool("halt_nil", description: "halt", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]}) do |_args|
-        raise PatientHttp::LLM::HaltError.new
+        raise PatientLLM::HaltError.new
       end
 
       session = PromptBuilder::Session.new(model: "gpt-4")
@@ -451,7 +451,7 @@ RSpec.describe PatientHttp::LLM::Callback do
     it "surfaces HaltError content as the final assistant message without re-asking" do
       PromptBuilder.reset_tool_registry!
       PromptBuilder.register_tool("halting", description: "halting", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]}) do |args|
-        raise PatientHttp::LLM::HaltError.new(content: "Stopped: #{args["x"]}")
+        raise PatientLLM::HaltError.new(content: "Stopped: #{args["x"]}")
       end
 
       session = PromptBuilder::Session.new(model: "gpt-4")
