@@ -3,9 +3,9 @@
 class LLMErrorWorker
   include Sidekiq::Job
 
-  def perform(error, chat, callback_args)
-    # chat is a PatientHttp::LLM::Chat instance (deserialized by middleware)
-    # error is a PatientHttp::LLM::AsyncLLMError instance
+  def perform(error, session, callback_args)
+    # session is a PromptBuilder::Session (deserialized)
+    # error is the error details
 
     # Build error result payload
     result = {
@@ -15,7 +15,7 @@ class LLMErrorWorker
         message: error.message,
         error_class: error.error_class
       },
-      chat: chat.as_json,
+      session: session.to_h,
       timestamp: Time.now.iso8601
     }
 

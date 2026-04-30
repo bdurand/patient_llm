@@ -33,8 +33,17 @@
         <h2>Settings</h2>
 
         <div class="setting-group">
-          <label for="api-url">API URL</label>
-          <input type="text" id="api-url" value="http://localhost:1234/v1/chat/completions" placeholder="http://localhost:1234/v1/chat/completions" autocomplete="off" autocapitalize="off">
+          <label for="api-url">API Base URL</label>
+          <input type="text" id="api-url" value="http://localhost:1234" placeholder="http://localhost:1234" autocomplete="off" autocapitalize="off">
+        </div>
+
+        <div class="setting-group">
+          <label for="api-path">API</label>
+          <select id="api-path">
+            <option value="/v1/responses">/v1/responses</option>
+            <option value="/v1/chat/completions" selected>/v1/chat/completions</option>
+            <option value="/v1/messages">/v1/messages</option>
+          </select>
         </div>
 
         <div class="setting-group">

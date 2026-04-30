@@ -105,6 +105,7 @@ function addMessage(role, content, meta = null) {
 function getSettings() {
   return {
     api_url: document.getElementById('api-url').value,
+    api_path: document.getElementById('api-path').value,
     model: document.getElementById('model').value,
     system_prompt: document.getElementById('system-prompt').value,
     temperature: parseFloat(temperatureEl.value),
@@ -167,7 +168,7 @@ async function sendMessage(message, options = {}) {
   const settings = getSettings();
   const payload = {
     message: message,
-    chat: chatSnapshot,
+    session: chatSnapshot,
     ...settings
   };
 
@@ -271,7 +272,7 @@ function handleResult(requestId, result) {
         messageEl.dataset.chatBefore = JSON.stringify(requestContext.chatBefore);
       }
 
-      chatState = result.chat;
+      chatState = result.session;
       showToast('Response received', 'success');
     } else {
       const errorContent = Markdown.escapeHtml(`Error: ${result.error.type} - ${result.error.message}`).replace(/\n/g, '<br>');

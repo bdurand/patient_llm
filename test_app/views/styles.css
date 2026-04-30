@@ -352,6 +352,11 @@ header h1 {
   border-color: #64b5f6;
 }
 
+::placeholder {
+  color: #666;
+  opacity: 1;
+}
+
 .setting-group input[type="range"] {
   width: 100%;
   cursor: pointer;

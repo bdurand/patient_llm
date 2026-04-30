@@ -6,10 +6,10 @@ require_relative "../lib/patient_http-llm"
 
 # Mock callback class for testing
 class TestCallback
-  def on_complete(chat, message, callback_args, response)
+  def on_complete(session, provider, llm_response, callback_args, http_response)
   end
 
-  def on_error(chat, callback_args, error)
+  def on_error(session, provider, callback_args, error)
   end
 end
 
@@ -17,7 +17,8 @@ end
 PatientHttp::LLM.configure do |config|
   config.provider :openai,
     url: "https://api.openai.com",
-    headers: {"Authorization" => "Bearer test-key"}
+    headers: {"Authorization" => "Bearer test-key"},
+    serializer: :chat_completion
 end
 
 RSpec.configure do |config|

@@ -5,24 +5,23 @@ require "spec_helper"
 RSpec.describe PatientHttp::LLM::Callback do
   let(:callback) { described_class.new }
 
-  let(:chat_data) do
+  let(:session_hash) do
     {
-      "v" => 1,
-      "callback" => "TestCallback",
       "model" => "gpt-4",
-      "provider" => "openai",
-      "api_base" => "https://api.openai.com",
-      "messages" => [
-        {"role" => "user", "content" => "Hello"}
+      "input" => [
+        {"type" => "message", "role" => "user", "content" => [{"type" => "input_text", "text" => "Hello"}]}
       ]
     }
   end
 
   let(:callback_args) do
     {
-      chat: chat_data,
-      chat_callback: "TestCallback",
-      custom: {"user_id" => "123"}
+      session: session_hash,
+      provider: "openai",
+      callback: "TestCallback",
+      custom: {"user_id" => "123"},
+      request_options: {},
+      tool_iteration: 0
     }
   end
 
@@ -57,36 +56,40 @@ RSpec.describe PatientHttp::LLM::Callback do
       allow(test_callback_instance).to receive(:on_complete)
     end
 
-    it "loads the chat from callback_args" do
+    it "restores the session from callback_args" do
       callback.on_complete(response)
 
-      expect(test_callback_instance).to have_received(:on_complete) do |chat, _message, _args, _response|
-        expect(chat).to be_a(PatientHttp::LLM::Chat)
-        expect(chat.model).to eq("gpt-4")
-        expect(chat.provider).to eq("openai")
+      expect(test_callback_instance).to have_received(:on_complete) do |session, _provider, _msg, _args, _resp|
+        expect(session).to be_a(PromptBuilder::Session)
+        expect(session.model).to eq("gpt-4")
       end
     end
 
-    it "parses the response into a Message" do
+    it "passes the provider name" do
       callback.on_complete(response)
 
-      expect(test_callback_instance).to have_received(:on_complete) do |_chat, message, _args, _response|
-        expect(message).to be_a(PatientHttp::LLM::Message)
-        expect(message.role).to eq(:assistant)
-        expect(message.content).to eq("Hello! How can I help?")
-        expect(message.input_tokens).to eq(10)
-        expect(message.output_tokens).to eq(8)
-        expect(message.model_id).to eq("gpt-4")
+      expect(test_callback_instance).to have_received(:on_complete) do |_session, provider, _msg, _args, _resp|
+        expect(provider).to eq("openai")
       end
     end
 
-    it "calls the user callback with chat, message, callback_args, and response" do
+    it "parses the response into a PromptBuilder::Response" do
+      callback.on_complete(response)
+
+      expect(test_callback_instance).to have_received(:on_complete) do |_session, _provider, llm_response, _args, _resp|
+        expect(llm_response).to be_a(PromptBuilder::Response)
+        expect(llm_response.text).to eq("Hello! How can I help?")
+      end
+    end
+
+    it "calls the user callback with session, provider, llm_response, callback_args, and response" do
       callback.on_complete(response)
 
       expect(test_callback_instance).to have_received(:on_complete)
         .with(
-          instance_of(PatientHttp::LLM::Chat),
-          instance_of(PatientHttp::LLM::Message),
+          instance_of(PromptBuilder::Session),
+          "openai",
+          instance_of(PromptBuilder::Response),
           instance_of(PatientHttp::CallbackArgs),
           response
         )
@@ -95,8 +98,19 @@ RSpec.describe PatientHttp::LLM::Callback do
     it "passes custom callback_args to the user callback" do
       callback.on_complete(response)
 
-      expect(test_callback_instance).to have_received(:on_complete) do |_chat, _message, args, _response|
+      expect(test_callback_instance).to have_received(:on_complete) do |_session, _provider, _msg, args, _resp|
         expect(args[:user_id]).to eq("123")
+      end
+    end
+
+    it "includes the response in the session passed to the user callback" do
+      callback.on_complete(response)
+
+      expect(test_callback_instance).to have_received(:on_complete) do |session, _provider, _msg, _args, _resp|
+        # The session should contain the original user message plus the assistant response
+        messages = session.items.select { |i| i.is_a?(PromptBuilder::Items::Message) }
+        roles = messages.map(&:role)
+        expect(roles).to include("user", "assistant")
       end
     end
   end
@@ -122,21 +136,22 @@ RSpec.describe PatientHttp::LLM::Callback do
       allow(test_callback_instance).to receive(:on_error)
     end
 
-    it "loads the chat from callback_args" do
+    it "restores the session from callback_args" do
       callback.on_error(error)
 
-      expect(test_callback_instance).to have_received(:on_error) do |chat, _args, _error|
-        expect(chat).to be_a(PatientHttp::LLM::Chat)
-        expect(chat.model).to eq("gpt-4")
+      expect(test_callback_instance).to have_received(:on_error) do |session, _provider, _args, _error|
+        expect(session).to be_a(PromptBuilder::Session)
+        expect(session.model).to eq("gpt-4")
       end
     end
 
-    it "calls the user callback with chat, callback_args, and error" do
+    it "calls the user callback with session, provider, callback_args, and error" do
       callback.on_error(error)
 
       expect(test_callback_instance).to have_received(:on_error)
         .with(
-          instance_of(PatientHttp::LLM::Chat),
+          instance_of(PromptBuilder::Session),
+          "openai",
           instance_of(PatientHttp::CallbackArgs),
           error
         )
@@ -145,20 +160,9 @@ RSpec.describe PatientHttp::LLM::Callback do
     it "passes custom callback_args to the user callback" do
       callback.on_error(error)
 
-      expect(test_callback_instance).to have_received(:on_error) do |_chat, args, _error|
+      expect(test_callback_instance).to have_received(:on_error) do |_session, _provider, args, _error|
         expect(args[:user_id]).to eq("123")
       end
-    end
-  end
-
-  describe "#chat_callback_args (private)" do
-    it "wraps custom args in CallbackArgs" do
-      custom_args = {"user_id" => "123", "session_id" => "abc"}
-      args = callback.send(:chat_callback_args, {custom: custom_args})
-
-      expect(args).to be_a(PatientHttp::CallbackArgs)
-      expect(args[:user_id]).to eq("123")
-      expect(args[:session_id]).to eq("abc")
     end
   end
 
@@ -182,9 +186,9 @@ RSpec.describe PatientHttp::LLM::Callback do
     end
   end
 
-  describe "missing chat_callback" do
+  describe "missing callback" do
     let(:args_without_callback) do
-      {chat: chat_data, chat_callback: nil, custom: {}}
+      {session: session_hash, provider: "openai", callback: nil, custom: {}, request_options: {}}
     end
 
     let(:response) do
@@ -200,36 +204,37 @@ RSpec.describe PatientHttp::LLM::Callback do
       )
     end
 
-    it "raises a clear error when chat_callback is missing" do
+    it "raises a clear error when callback is missing" do
       expect { callback.on_complete(response) }
-        .to raise_error(ArgumentError, /No chat_callback registered/)
+        .to raise_error(ArgumentError, /No callback registered/)
     end
   end
 
   describe "auto tool loop" do
     before do
-      stub_const(
-        "AutoWeatherTool",
-        Class.new(PatientHttp::LLM::Tool) do
-          description "weather"
-          param :location, type: "string", desc: "City"
-
-          def execute(location:)
-            "72F in #{location}"
-          end
-        end
-      )
+      PromptBuilder.register_tool("auto_weather", description: "weather", parameters: {type: "object", properties: {"location" => {type: "string"}}, required: ["location"]}) do |args|
+        "72F in #{args["location"]}"
+      end
     end
 
-    let(:chat_data_with_tools) do
-      chat_data.merge("tools" => ["AutoWeatherTool"])
+    after do
+      PromptBuilder.reset_tool_registry!
+    end
+
+    let(:session_with_tools) do
+      session = PromptBuilder::Session.new(model: "gpt-4")
+      session.user("Hello")
+      session.register_tool("auto_weather", description: "weather", parameters: {type: "object", properties: {"location" => {type: "string"}}, required: ["location"]})
+      session.to_h
     end
 
     let(:callback_args_with_tools) do
       {
-        chat: chat_data_with_tools,
-        chat_callback: "TestCallback",
+        session: session_with_tools,
+        provider: "openai",
+        callback: "TestCallback",
         custom: {"user_id" => "123"},
+        request_options: {},
         tool_iteration: 0
       }
     end
@@ -286,12 +291,6 @@ RSpec.describe PatientHttp::LLM::Callback do
         expect(test_callback).not_to have_received(:on_complete)
         expect(captured).not_to be_nil
         expect(captured[:callback_args][:tool_iteration]).to eq(1)
-
-        # Tool call + tool result appended to chat
-        messages = captured[:callback_args][:chat]["messages"]
-        expect(messages.last["role"]).to eq("tool")
-        expect(messages.last["content"]).to eq("72F in NYC")
-        expect(messages.last["tool_call_id"]).to eq("call_1")
       ensure
         PatientHttp.unregister_handler
       end
@@ -314,22 +313,159 @@ RSpec.describe PatientHttp::LLM::Callback do
         .to raise_error(RuntimeError, /Tool-call loop exceeded/)
     end
 
-    it "surfaces Tool::Halt content as the final assistant message without re-asking" do
-      stub_const(
-        "HaltingTool",
-        Class.new(PatientHttp::LLM::Tool) do
-          description "halting"
-          param :x, type: "string", desc: "x"
+    it "JSON-encodes structured tool results" do
+      PromptBuilder.reset_tool_registry!
+      PromptBuilder.register_tool("structured", description: "structured", parameters: {type: "object", properties: {"q" => {type: "string"}}, required: ["q"]}) do |args|
+        {temperature: 72, condition: "sunny", query: args["q"]}
+      end
 
-          def execute(x:)
-            halt("Stopped: #{x}")
-          end
-        end
+      session = PromptBuilder::Session.new(model: "gpt-4")
+      session.user("Hello")
+      session.register_tool("structured", description: "structured", parameters: {type: "object", properties: {"q" => {type: "string"}}, required: ["q"]})
+
+      args = {
+        session: session.to_h,
+        provider: "openai",
+        callback: "TestCallback",
+        custom: {},
+        request_options: {},
+        tool_iteration: 0
+      }
+
+      body = {
+        "choices" => [
+          {
+            "message" => {
+              "role" => "assistant",
+              "content" => nil,
+              "tool_calls" => [
+                {
+                  "id" => "call_struct",
+                  "type" => "function",
+                  "function" => {"name" => "structured", "arguments" => '{"q":"NYC"}'}
+                }
+              ]
+            }
+          }
+        ],
+        "usage" => {"prompt_tokens" => 5, "completion_tokens" => 5},
+        "model" => "gpt-4"
+      }
+
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
       )
 
-      args = callback_args_with_tools.merge(
-        chat: chat_data_with_tools.merge("tools" => ["HaltingTool"])
+      captured = nil
+      fake_handler = ->(request:, callback:, callback_args:, raise_error_responses:) {
+        captured = callback_args
+        "req-id"
+      }
+
+      PatientHttp.register_handler(fake_handler)
+      begin
+        callback.on_complete(response)
+
+        # Verify the re-ask happened and the session contains valid JSON tool output
+        expect(captured).not_to be_nil
+        session_data = captured[:session]
+        tool_outputs = session_data["input"].select { |i| i["type"] == "function_call_output" }
+        expect(tool_outputs.size).to eq(1)
+        output = tool_outputs.first["output"]
+        parsed = JSON.parse(output)
+        expect(parsed["temperature"]).to eq(72)
+        expect(parsed["condition"]).to eq("sunny")
+      ensure
+        PatientHttp.unregister_handler
+      end
+    end
+
+    it "handles HaltError with nil content gracefully" do
+      PromptBuilder.reset_tool_registry!
+      PromptBuilder.register_tool("halt_nil", description: "halt", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]}) do |_args|
+        raise PatientHttp::LLM::HaltError.new
+      end
+
+      session = PromptBuilder::Session.new(model: "gpt-4")
+      session.user("Hello")
+      session.register_tool("halt_nil", description: "halt", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]})
+
+      args = {
+        session: session.to_h,
+        provider: "openai",
+        callback: "TestCallback",
+        custom: {},
+        request_options: {},
+        tool_iteration: 0
+      }
+
+      body = {
+        "choices" => [
+          {
+            "message" => {
+              "role" => "assistant",
+              "content" => nil,
+              "tool_calls" => [
+                {
+                  "id" => "call_nil",
+                  "type" => "function",
+                  "function" => {"name" => "halt_nil", "arguments" => '{"x":"go"}'}
+                }
+              ]
+            }
+          }
+        ],
+        "usage" => {"prompt_tokens" => 1, "completion_tokens" => 1},
+        "model" => "gpt-4"
+      }
+
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
       )
+
+      test_callback = instance_double(TestCallback, on_complete: nil)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+
+      callback.on_complete(response)
+
+      expect(test_callback).to have_received(:on_complete) do |_session, _provider, llm_response, _args, _resp|
+        expect(llm_response).to be_a(PromptBuilder::Response)
+        expect(llm_response.text).to eq("")
+      end
+    end
+
+    it "surfaces HaltError content as the final assistant message without re-asking" do
+      PromptBuilder.reset_tool_registry!
+      PromptBuilder.register_tool("halting", description: "halting", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]}) do |args|
+        raise PatientHttp::LLM::HaltError.new(content: "Stopped: #{args["x"]}")
+      end
+
+      session = PromptBuilder::Session.new(model: "gpt-4")
+      session.user("Hello")
+      session.register_tool("halting", description: "halting", parameters: {type: "object", properties: {"x" => {type: "string"}}, required: ["x"]})
+
+      args = {
+        session: session.to_h,
+        provider: "openai",
+        callback: "TestCallback",
+        custom: {"user_id" => "123"},
+        request_options: {},
+        tool_iteration: 0
+      }
 
       body = {
         "choices" => [
@@ -365,12 +501,11 @@ RSpec.describe PatientHttp::LLM::Callback do
       test_callback = instance_double(TestCallback, on_complete: nil)
       allow(TestCallback).to receive(:new).and_return(test_callback)
 
-      # Should not need a handler — halt short-circuits the re-ask
       callback.on_complete(response)
 
-      expect(test_callback).to have_received(:on_complete) do |_chat, message, _args, _response|
-        expect(message).to be_a(PatientHttp::LLM::Message)
-        expect(message.content).to eq("Stopped: go")
+      expect(test_callback).to have_received(:on_complete) do |_session, _provider, llm_response, _args, _resp|
+        expect(llm_response).to be_a(PromptBuilder::Response)
+        expect(llm_response.text).to eq("Stopped: go")
       end
     end
   end

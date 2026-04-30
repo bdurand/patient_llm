@@ -13,58 +13,75 @@ class ChatAction
     end
 
     api_url = params["api_url"]
-    api_base = nil
-    completion_path = nil
+    url_override = nil
+    completion_path_override = nil
+    serializer_override = nil
+
     if api_url
       uri = URI.parse(api_url)
-      completion_path = uri.path
+      # Strip any path from the base URL
       uri.path = ""
-      api_base = uri.to_s
+      url_override = uri.to_s
     end
 
-    # Load existing chat or create new one
-    chat = if params["chat"]
-      PatientHttp::LLM::Chat.load(params["chat"])
+    if params["api_path"] && !params["api_path"].empty?
+      completion_path_override = params["api_path"]
+      serializer_override = PatientHttp::LLM::SERIALIZER_PATHS.key(completion_path_override)
+    end
+
+    # Load existing session or create new one
+    session = if params["session"]
+      PromptBuilder::Session.from_h(params["session"])
     else
-      PatientHttp::LLM::Chat.new(
-        callback: LLMCallback,
-        model: params["model"],
-        provider: "openai", # LM Studio is OpenAI-compatible
-        api_base: api_base,
-        completion_path: completion_path
-      )
+      PromptBuilder::Session.new(model: params["model"])
     end
 
-    # Apply settings via builder methods
+    # Apply settings
     if params["system_prompt"] && !params["system_prompt"].empty?
-      chat.with_instructions(params["system_prompt"], replace: true)
+      session.instructions = params["system_prompt"] || "You are a helpful assistant."
     end
 
     if params["temperature"]
-      chat.with_temperature(params["temperature"].to_f)
+      session.temperature = params["temperature"].to_f
     end
 
     if params["thinking_enabled"]
-      chat.with_thinking(
-        effort: params["thinking_effort"],
-        budget: params["thinking_budget"]&.to_i
-      )
+      reasoning = {effort: params["thinking_effort"] || "medium"}
+      reasoning[:budget_tokens] = params["thinking_budget"].to_i if params["thinking_budget"]
+      session.reasoning = reasoning
     end
 
     if params["schema"] && !params["schema"].empty?
       begin
         schema = JSON.parse(params["schema"])
-        chat.with_schema(schema)
+        session.text = {
+          format: {
+            type: "json_schema",
+            json_schema: {name: "response", schema: schema}
+          }
+        }
       rescue JSON::ParserError
         # Ignore invalid schema
       end
     end
 
     if params["max_tokens"] && params["max_tokens"].to_i > 0
-      chat.with_params(max_tokens: params["max_tokens"].to_i)
+      session.max_output_tokens = params["max_tokens"].to_i
     end
 
-    request_id = chat.ask(user_message)
+    session.register_tools(PromptBuilder.tool_registry)
+
+    # Add the user message
+    session.user(user_message)
+
+    request_id = PatientHttp::LLM.ask(
+      session,
+      provider: :openai,
+      callback: LLMCallback,
+      url: url_override,
+      serializer: serializer_override,
+      completion_path: completion_path_override
+    )
 
     [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]
   rescue JSON::ParserError => e
