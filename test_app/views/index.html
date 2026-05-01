@@ -19,13 +19,20 @@
         </div>
 
         <form id="chat-form" class="chat-input">
-          <textarea
-            id="user-message"
-            placeholder="Type your message here..."
-            rows="3"
-            required
-          ></textarea>
-          <button type="submit" id="send-btn">Send</button>
+          <div class="chat-input-area" id="chat-input-area">
+            <textarea
+              id="user-message"
+              placeholder="Type your message here... (paste or drop files to attach)"
+              rows="3"
+              required
+            ></textarea>
+            <div class="attachment-previews" id="attachment-previews"></div>
+          </div>
+          <div class="chat-input-buttons">
+            <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.csv,.json,.md,.xml,.yaml,.yml,.log,.html,.css,.js,.rb,.py" hidden>
+            <button type="button" id="attach-btn" title="Attach files">&#x1F4CE;</button>
+            <button type="submit" id="send-btn">Send</button>
+          </div>
         </form>
       </div>
 
@@ -56,43 +63,174 @@
           <textarea id="system-prompt" rows="3" placeholder="You are a helpful assistant..."></textarea>
         </div>
 
-        <div class="setting-group">
-          <label for="temperature">Temperature: <span id="temp-value">0.7</span></label>
-          <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" autocomplete="off" autocapitalize="off">
-        </div>
+        <!-- Sampling Parameters -->
+        <details class="settings-section" open>
+          <summary>Sampling</summary>
 
-        <div class="setting-group">
-          <label for="max-tokens">Max Tokens (0 = unlimited)</label>
-          <input type="number" id="max-tokens" value="0" min="0" max="128000" autocomplete="off" autocapitalize="off">
-        </div>
-
-        <div class="setting-group">
-          <label>
-            <input type="checkbox" id="thinking-enabled">
-            Enable Extended Thinking
-          </label>
-        </div>
-
-        <div class="thinking-options" id="thinking-options" style="display: none;">
           <div class="setting-group">
-            <label for="thinking-effort">Thinking Effort</label>
-            <select id="thinking-effort">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
+            <label for="temperature">Temperature: <span id="temp-value">0.7</span></label>
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="top-p">Top P: <span id="top-p-value">—</span></label>
+            <input type="range" id="top-p" min="0" max="1" step="0.05" value="1" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="presence-penalty">Presence Penalty: <span id="presence-penalty-value">0</span></label>
+            <input type="range" id="presence-penalty" min="-2" max="2" step="0.1" value="0" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="frequency-penalty">Frequency Penalty: <span id="frequency-penalty-value">0</span></label>
+            <input type="range" id="frequency-penalty" min="-2" max="2" step="0.1" value="0" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="max-tokens">Max Tokens (0 = unlimited)</label>
+            <input type="number" id="max-tokens" value="0" min="0" max="128000" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="top-logprobs">Top Logprobs (0 = disabled)</label>
+            <input type="number" id="top-logprobs" value="0" min="0" max="20" autocomplete="off" autocapitalize="off">
+          </div>
+        </details>
+
+        <!-- Reasoning -->
+        <details class="settings-section">
+          <summary>Reasoning</summary>
+
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="thinking-enabled">
+              Enable Extended Thinking
+            </label>
+          </div>
+
+          <div class="thinking-options" id="thinking-options" style="display: none;">
+            <div class="setting-group">
+              <label for="thinking-effort">Thinking Effort</label>
+              <select id="thinking-effort">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+
+            <div class="setting-group">
+              <label for="thinking-budget">Thinking Budget (tokens)</label>
+              <input type="number" id="thinking-budget" value="10000" min="1000" max="100000" autocomplete="off" autocapitalize="off">
+            </div>
+          </div>
+        </details>
+
+        <!-- Structured Output -->
+        <details class="settings-section">
+          <summary>Structured Output</summary>
+
+          <div class="setting-group">
+            <label for="schema">JSON Schema</label>
+            <textarea id="schema" rows="4" placeholder='{"type": "object", "properties": {...}}'></textarea>
+          </div>
+        </details>
+
+        <!-- Tools -->
+        <details class="settings-section">
+          <summary>Tools</summary>
+
+          <div class="setting-group">
+            <label>Allowed Tools</label>
+            <div class="checkbox-group">
+              <label><input type="checkbox" name="allowed-tools" value="weather"> weather</label>
+              <label><input type="checkbox" name="allowed-tools" value="traffic_conditions"> traffic conditions</label>
+            </div>
+          </div>
+
+          <div class="setting-group">
+            <label for="tool-choice">Tool Choice</label>
+            <select id="tool-choice">
+              <option value="" selected>(not set)</option>
+              <option value="auto">auto</option>
+              <option value="none">none</option>
+              <option value="required">required</option>
             </select>
           </div>
 
           <div class="setting-group">
-            <label for="thinking-budget">Thinking Budget (tokens)</label>
-            <input type="number" id="thinking-budget" value="10000" min="1000" max="100000" autocomplete="off" autocapitalize="off">
+            <label>
+              <input type="checkbox" id="parallel-tool-calls">
+              Parallel Tool Calls
+            </label>
           </div>
-        </div>
 
-        <div class="setting-group">
-          <label for="schema">JSON Schema (for structured output)</label>
-          <textarea id="schema" rows="4" placeholder='{"type": "object", "properties": {...}}'></textarea>
-        </div>
+          <div class="setting-group">
+            <label for="max-tool-calls">Max Tool Calls (0 = unlimited)</label>
+            <input type="number" id="max-tool-calls" value="0" min="0" max="1000" autocomplete="off" autocapitalize="off">
+          </div>
+        </details>
+
+        <!-- Response Control -->
+        <details class="settings-section">
+          <summary>Response</summary>
+
+          <div class="setting-group">
+            <label for="truncation">Truncation</label>
+            <select id="truncation">
+              <option value="" selected>(not set)</option>
+              <option value="auto">auto</option>
+              <option value="disabled">disabled</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="store">
+              Store Response
+            </label>
+          </div>
+
+          <div class="setting-group">
+            <label for="service-tier">Service Tier</label>
+            <select id="service-tier">
+              <option value="" selected>(not set)</option>
+              <option value="auto">auto</option>
+              <option value="default">default</option>
+              <option value="flex">flex</option>
+            </select>
+          </div>
+
+          <div class="setting-group">
+            <label>Include</label>
+            <div class="checkbox-group">
+              <label><input type="checkbox" name="include" value="usage"> usage</label>
+              <label><input type="checkbox" name="include" value="file_search_results"> file_search_results</label>
+              <label><input type="checkbox" name="include" value="reasoning.encrypted_content"> reasoning.encrypted_content</label>
+            </div>
+          </div>
+        </details>
+
+        <!-- Advanced -->
+        <details class="settings-section">
+          <summary>Advanced</summary>
+
+          <div class="setting-group">
+            <label for="safety-identifier">Safety Identifier</label>
+            <input type="text" id="safety-identifier" placeholder="Optional safety identifier" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label for="prompt-cache-key">Prompt Cache Key</label>
+            <input type="text" id="prompt-cache-key" placeholder="Optional cache key" autocomplete="off" autocapitalize="off">
+          </div>
+
+          <div class="setting-group">
+            <label>Metadata</label>
+            <div id="metadata-entries"></div>
+            <button type="button" id="add-metadata-btn" class="add-metadata-btn">+ Add Metadata</button>
+          </div>
+        </details>
 
         <div class="setting-group">
           <button type="button" id="reset-btn" class="reset-btn">Reset Conversation</button>

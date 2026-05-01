@@ -23,7 +23,7 @@ end
 
 # Configure LLM providers
 PatientLLM.configure do |config|
-  config.provider :openai,
+  config.provider :test,
     url: AppConfig.llm_api_base,
     headers: {}
 end
@@ -35,7 +35,7 @@ end
 # Register tools
 PromptBuilder.tool_registry.register(
   "weather",
-  description: "Get current weather conditions for a city",
+  description: "Get weather forecast for a city",
   parameters: {
     type: "object",
     properties: {
@@ -47,6 +47,23 @@ PromptBuilder.tool_registry.register(
   }
 ) do |args|
   WeatherTool.call(**args.transform_keys(&:to_sym))
+end
+
+PromptBuilder.tool_registry.register(
+  "traffic_conditions",
+  description: "Get current or anticipated traffic conditions for a city",
+  parameters: {
+    type: "object",
+    properties: {
+      city: {type: "string", description: "Name of the city"},
+      state: {type: "string", description: "State or province"},
+      country: {type: "string", description: "Country"},
+      time: {type: "string", description: "Time of day to check traffic (e.g. '8:00 AM', 'rush hour')"}
+    },
+    required: ["city"]
+  }
+) do |args|
+  TrafficConditionsTool.call(**args.transform_keys(&:to_sym))
 end
 
 puts "Initialized with:"
