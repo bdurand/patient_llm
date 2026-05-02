@@ -267,9 +267,19 @@ function addMessage(role, content, meta = null, messageAttachments = null) {
     `;
   }
 
+  // Add resend button for user messages
+  if (role === 'user') {
+    html += `
+      <div class="message-footer user-message-footer">
+        <button type="button" class="message-resend-btn" title="Resend message" aria-label="Resend message">↩</button>
+      </div>
+    `;
+  }
+
   messageEl.innerHTML = html;
   messagesEl.appendChild(messageEl);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+  return messageEl;
 }
 
 // Get settings
@@ -389,7 +399,12 @@ async function sendMessage(message, options = {}) {
   const messageAttachments = options.attachments || null;
 
   if (addUserBubble) {
-    addMessage('user', message, null, messageAttachments);
+    const newUserMessageEl = addMessage('user', message, null, messageAttachments);
+    newUserMessageEl.dataset.userMessage = message;
+    newUserMessageEl.dataset.chatBefore = JSON.stringify(chatSnapshot);
+    if (messageAttachments && messageAttachments.length > 0) {
+      newUserMessageEl.dataset.attachments = JSON.stringify(messageAttachments);
+    }
   }
 
   const settings = getSettings();
@@ -537,6 +552,34 @@ async function refreshAssistantMessage(messageEl) {
   });
 }
 
+async function resendUserMessage(userMessageEl) {
+  const message = userMessageEl.dataset.userMessage;
+  if (message === undefined) {
+    showToast('Unable to resend this message', 'error');
+    return;
+  }
+
+  const chatBefore = parseChatState(userMessageEl.dataset.chatBefore);
+  const savedAttachments = userMessageEl.dataset.attachments
+    ? JSON.parse(userMessageEl.dataset.attachments)
+    : null;
+
+  // Remove this user message and everything that came after it
+  trimConversationAfter(userMessageEl);
+  userMessageEl.remove();
+
+  // Restore empty state if the conversation is now empty
+  if (!messagesEl.querySelector('.message')) {
+    messagesEl.innerHTML = '<div class="empty-state">Start a conversation by typing a message below.</div>';
+  }
+
+  // Re-submit the message with the session state from before it was sent
+  await sendMessage(message, {
+    chatOverride: chatBefore,
+    attachments: savedAttachments
+  });
+}
+
 // Reset conversation
 function resetConversation() {
   chatState = null;
@@ -569,20 +612,31 @@ resetBtn.addEventListener('click', resetConversation);
 
 messagesEl.addEventListener('click', async (event) => {
   const refreshBtn = event.target.closest('.message-refresh-btn');
-  if (!refreshBtn || refreshBtn.disabled) {
+  if (refreshBtn) {
+    if (refreshBtn.disabled) return;
+
+    const assistantMessageEl = refreshBtn.closest('.message.assistant');
+    if (!assistantMessageEl) return;
+
+    refreshBtn.disabled = true;
+    await refreshAssistantMessage(assistantMessageEl);
+
+    if (document.body.contains(refreshBtn)) {
+      refreshBtn.disabled = false;
+    }
     return;
   }
 
-  const assistantMessageEl = refreshBtn.closest('.message.assistant');
-  if (!assistantMessageEl) {
-    return;
-  }
+  const resendBtn = event.target.closest('.message-resend-btn');
+  if (resendBtn) {
+    if (resendBtn.disabled) return;
 
-  refreshBtn.disabled = true;
-  await refreshAssistantMessage(assistantMessageEl);
+    const userMessageEl = resendBtn.closest('.message.user');
+    if (!userMessageEl) return;
 
-  if (document.body.contains(refreshBtn)) {
-    refreshBtn.disabled = false;
+    resendBtn.disabled = true;
+    await resendUserMessage(userMessageEl);
+    // The element is removed on success, so no need to re-enable
   }
 });
 
