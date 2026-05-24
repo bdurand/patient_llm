@@ -10,10 +10,9 @@ class ChatService
     # @param request_id [String] the request identifier
     # @param result [Hash] the result data to store
     def set_result(request_id, result)
-      Sidekiq.redis do |conn|
-        conn.set(result_key(request_id), result.to_json)
-        conn.expire(result_key(request_id), RESULT_TTL)
-      end
+      start_time = result_value(request_id, "start_time").to_f
+      total_duration = Time.now.to_f - start_time
+      update_result_hash(request_id, payload: result, total_duration: total_duration)
     end
 
     # Retrieve and delete a result for a specific request ID
@@ -21,19 +20,60 @@ class ChatService
     # @param request_id [String] the request identifier
     # @return [Hash, nil] the result data or nil if not found
     def get_result(request_id)
-      Sidekiq.redis do |conn|
-        json = conn.get(result_key(request_id))
-        return nil unless json
+      json = result_value(request_id, "payload")
+      return nil unless json
 
-        conn.del(result_key(request_id))
-        JSON.parse(json)
-      end
+      durations = Array(result_value(request_id, "durations")&.split(",")).map(&:to_f)
+
+      payload = JSON.parse(json)
+      payload["http_duration"] = durations.sum
+      payload["request_count"] = durations.size
+      payload["total_duration"] = result_value(request_id, "total_duration").to_f
+
+      delete_result(request_id)
+
+      payload
+    end
+
+    def record_request_start(request_id)
+      update_result_hash(request_id, {"start_time" => Time.now.to_f.round(6)})
+    end
+
+    def record_request_duration(request_id, duration)
+      durations = Sidekiq.redis { |conn| conn.hget(result_key(request_id), "durations") }
+      durations = durations ? durations.split(",") : []
+      durations << duration.round(6).to_s
+      update_result_hash(request_id, durations: durations.join(","))
     end
 
     private
 
     def result_key(request_id)
       "#{RESULT_KEY_PREFIX}#{request_id}"
+    end
+
+    def update_result_hash(request_id, values)
+      key = result_key(request_id)
+
+      redis_values = {}
+      values.each do |k, v|
+        redis_values[k.to_s] = v.is_a?(Hash) ? JSON.generate(v) : v&.to_s
+      end
+
+      Sidekiq.redis do |conn|
+        conn.multi do |transaction|
+          transaction.hmset(key, redis_values)
+          transaction.expire(key, RESULT_TTL)
+        end
+      end
+    end
+
+    def result_value(request_id, field)
+      Sidekiq.redis { |conn| conn.hget(result_key(request_id), field) }
+    end
+
+    def delete_result(request_id)
+      Sidekiq.redis { |conn| conn.del(result_key(request_id)) }
     end
   end
 end

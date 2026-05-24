@@ -14,20 +14,40 @@ class ChatAction
     end
 
     api_url = params["api_url"]
+    provider_name = params["provider"]
     url_override = nil
     completion_path_override = nil
     serializer_override = nil
+    headers_override = nil
+    provider = :test
 
-    if api_url
-      uri = URI.parse(api_url)
-      # Strip any path from the base URL
-      uri.path = ""
-      url_override = uri.to_s
-    end
+    if provider_name && provider_name != "custom" && PremiumProviders::PROVIDERS.key?(provider_name)
+      provider = provider_name.to_sym
+      model = params["model"].to_s
+      completion_path_override = PremiumProviders.completion_path(provider_name, model)
+      effective_serializer = PremiumProviders::PROVIDERS[provider_name][:serializer]
+    else
+      if api_url
+        uri = URI.parse(api_url)
+        # Strip any path from the base URL
+        uri.path = ""
+        url_override = uri.to_s
+      end
 
-    if params["api_path"] && !params["api_path"].empty?
-      completion_path_override = params["api_path"]
-      serializer_override = PatientLLM::SERIALIZER_PATHS.key(completion_path_override)
+      authorization = params["authorization"].to_s.strip
+      unless authorization.empty?
+        header_name, header_value = authorization.split(":", 2).map(&:strip)
+        if header_name&.match?(/\A[A-Za-z0-9-]+\z/) && header_value && !header_value.empty?
+          headers_override = {header_name => header_value}
+        end
+      end
+
+      if params["api_path"] && !params["api_path"].empty?
+        completion_path_override = params["api_path"]
+        serializer_override = PatientLLM::SERIALIZER_PATHS.key(completion_path_override)
+      end
+
+      effective_serializer = serializer_override
     end
 
     # Load existing session or create new one
@@ -42,14 +62,27 @@ class ChatAction
       session.instructions = params["system_prompt"] || "You are a helpful assistant."
     end
 
-    if params["temperature"]
+    thinking_enabled = params["thinking_enabled"]
+
+    if params["temperature"] && !(thinking_enabled && effective_serializer == :messages)
       session.temperature = params["temperature"].to_f
     end
 
-    if params["thinking_enabled"]
-      reasoning = {effort: params["thinking_effort"] || "medium"}
-      reasoning[:budget_tokens] = params["thinking_budget"].to_i if params["thinking_budget"]
-      session.reasoning = reasoning
+    if thinking_enabled
+      case effective_serializer
+      when :converse
+        # Converse does not support reasoning; skip
+      when :chat_completion, :open_responses, :gemini
+        # These serializers only support effort
+        session.reasoning = {effort: params["thinking_effort"] || "medium"}
+      when :messages
+        # Messages requires budget_tokens and max_output_tokens > budget_tokens
+        budget = params["thinking_budget"].to_i
+        budget = 10000 if budget < 1
+        session.reasoning = {budget_tokens: budget}
+      else
+        session.reasoning = {effort: params["thinking_effort"] || "medium"}
+      end
     end
 
     if params["schema"] && !params["schema"].empty?
@@ -70,7 +103,14 @@ class ChatAction
       session.max_output_tokens = params["max_tokens"].to_i
     end
 
-    if params["top_p"]
+    # Anthropic requires max_tokens > budget_tokens when thinking is enabled
+    if thinking_enabled && effective_serializer == :messages
+      budget = session.reasoning&.fetch("budget_tokens", 0) || 0
+      max_tokens = session.max_output_tokens || 0
+      session.max_output_tokens = budget + 4096 if max_tokens < budget + 1
+    end
+
+    if params["top_p"] && !(thinking_enabled && effective_serializer == :messages)
       session.top_p = params["top_p"].to_f
     end
 
@@ -126,14 +166,16 @@ class ChatAction
       session.metadata = params["metadata"]
     end
 
-    allowed_tools = params["allowed_tools"]
-    if allowed_tools.is_a?(Array) && !allowed_tools.empty?
-      allowed_tools.each do |tool_name|
-        definition = PromptBuilder.tool_registry.definition_for(tool_name)
-        session.register_tool(definition.name, description: definition.description, parameters: definition.parameters, strict: definition.strict) if definition
+    if params["tools_enabled"]
+      allowed_tools = params["allowed_tools"]
+      if allowed_tools.is_a?(Array) && !allowed_tools.empty?
+        allowed_tools.each do |tool_name|
+          definition = PromptBuilder.tool_registry.definition_for(tool_name)
+          session.register_tool(definition.name, description: definition.description, parameters: definition.parameters, strict: definition.strict) if definition
+        end
+      else
+        session.register_tools(PromptBuilder.tool_registry)
       end
-    else
-      session.register_tools(PromptBuilder.tool_registry)
     end
 
     # Add the user message (with optional attachments)
@@ -144,7 +186,7 @@ class ChatAction
       file_attachments.each do |attachment|
         media_type = attachment["media_type"].to_s
         if media_type.start_with?("image/")
-          content << {"type" => "input_image", "data" => attachment["data"], "media_type" => media_type}
+          content << {"type" => "input_image", "image_url" => "data:#{media_type};base64,#{attachment["data"]}"}
         else
           entry = {"type" => "input_file", "file_data" => attachment["data"]}
           entry["filename"] = attachment["name"] if attachment["name"]
@@ -158,14 +200,18 @@ class ChatAction
 
     request_id = PatientLLM.ask(
       session,
-      provider: :test,
+      provider: provider,
       callback: LLMCallback,
       url: url_override,
       serializer: serializer_override,
-      completion_path: completion_path_override
+      completion_path: completion_path_override,
+      headers: headers_override
     )
+    ChatService.record_request_start(request_id)
 
     [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]
+  rescue PromptBuilder::UnsupportedFormatError => e
+    [400, {"content-type" => "application/json"}, [{error: e.message}.to_json]]
   rescue JSON::ParserError => e
     [400, {"content-type" => "application/json"}, [{error: "Invalid JSON: #{e.message}"}.to_json]]
   end

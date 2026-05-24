@@ -31,8 +31,7 @@ module PatientLLM
       user_callback = resolve_user_callback(callback_args)
 
       serializer = resolve_serializer(provider_name, request_options)
-      body = parse_body(response)
-      llm_response = PromptBuilder::Response.parse(body, serializer)
+      llm_response = PromptBuilder::Response.parse(response.json, serializer)
 
       if should_auto_execute_tools?(llm_response)
         continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, request_options)
@@ -59,16 +58,6 @@ module PatientLLM
     def restore_session(callback_args)
       session_hash = callback_args.fetch(:session, {})
       PromptBuilder::Session.from_h(session_hash)
-    end
-
-    def parse_body(response)
-      if response.json?
-        response.json
-      else
-        JSON.parse(response.body.to_s)
-      end
-    rescue JSON::ParserError => e
-      raise "Invalid JSON response from LLM provider (status #{response.status}): #{e.message}"
     end
 
     def resolve_user_callback(callback_args)

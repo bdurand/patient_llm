@@ -14,7 +14,9 @@ module PatientLLM
   SERIALIZER_PATHS = {
     chat_completion: "/v1/chat/completions",
     open_responses: "/v1/responses",
-    messages: "/v1/messages"
+    messages: "/v1/messages",
+    converse: "/converse",
+    gemini: "/v1beta/generateContent"
   }.freeze
 
   # Required version header for the Anthropic Messages API.

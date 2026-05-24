@@ -22,6 +22,8 @@ const frequencyPenaltyEl = document.getElementById('frequency-penalty');
 const frequencyPenaltyValueEl = document.getElementById('frequency-penalty-value');
 const thinkingEnabledEl = document.getElementById('thinking-enabled');
 const thinkingOptionsEl = document.getElementById('thinking-options');
+const toolsEnabledEl = document.getElementById('tools-enabled');
+const toolsOptionsEl = document.getElementById('tools-options');
 const metadataEntriesEl = document.getElementById('metadata-entries');
 const addMetadataBtn = document.getElementById('add-metadata-btn');
 const toastEl = document.getElementById('toast');
@@ -29,6 +31,8 @@ const fileInputEl = document.getElementById('file-input');
 const attachBtn = document.getElementById('attach-btn');
 const attachmentPreviewsEl = document.getElementById('attachment-previews');
 const chatInputArea = document.getElementById('chat-input-area');
+const providerEl = document.getElementById('provider');
+const customApiSettingsEl = document.getElementById('custom-api-settings');
 
 // Update temperature display
 temperatureEl.addEventListener('input', () => {
@@ -50,10 +54,53 @@ frequencyPenaltyEl.addEventListener('input', () => {
   frequencyPenaltyValueEl.textContent = frequencyPenaltyEl.value;
 });
 
+// Toggle individual sampling fields
+document.querySelectorAll('.sampling-toggle').forEach(toggle => {
+  toggle.addEventListener('change', () => {
+    const target = document.getElementById(toggle.dataset.target);
+    target.disabled = !toggle.checked;
+  });
+});
+
 // Toggle thinking options
 thinkingEnabledEl.addEventListener('change', () => {
   thinkingOptionsEl.style.display = thinkingEnabledEl.checked ? 'block' : 'none';
 });
+
+// Toggle tools options
+toolsEnabledEl.addEventListener('change', () => {
+  toolsOptionsEl.style.display = toolsEnabledEl.checked ? 'block' : 'none';
+});
+
+// Provider selection
+providerEl.addEventListener('change', () => {
+  customApiSettingsEl.style.display = providerEl.value === 'custom' ? '' : 'none';
+  const selected = providerEl.selectedOptions[0];
+  if (selected && selected.dataset.defaultModel) {
+    document.getElementById('model').value = selected.dataset.defaultModel;
+  }
+});
+
+// Load available premium providers
+async function loadProviders() {
+  try {
+    const response = await fetch('/providers');
+    if (response.ok) {
+      const providers = await response.json();
+      providers.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.name;
+        option.textContent = p.label;
+        if (p.default_model) option.dataset.defaultModel = p.default_model;
+        providerEl.appendChild(option);
+      });
+    }
+  } catch (_error) {
+    // Providers endpoint not available; keep only Custom
+  }
+}
+
+loadProviders();
 
 // Show toast notification
 function showToast(message, type = 'info') {
@@ -284,46 +331,66 @@ function addMessage(role, content, meta = null, messageAttachments = null) {
 
 // Get settings
 function getSettings() {
+  const provider = providerEl.value;
   const settings = {
-    api_url: document.getElementById('api-url').value,
-    api_path: document.getElementById('api-path').value,
+    provider: provider,
     model: document.getElementById('model').value,
     system_prompt: document.getElementById('system-prompt').value,
-    temperature: parseFloat(temperatureEl.value),
-    max_tokens: parseInt(document.getElementById('max-tokens').value) || 0,
     thinking_enabled: thinkingEnabledEl.checked,
     thinking_effort: document.getElementById('thinking-effort').value,
     thinking_budget: parseInt(document.getElementById('thinking-budget').value),
     schema: document.getElementById('schema').value
   };
 
-  // Sampling parameters (only include when non-default)
-  const topP = parseFloat(topPEl.value);
-  if (topP < 1) settings.top_p = topP;
-
-  const presencePenalty = parseFloat(presencePenaltyEl.value);
-  if (presencePenalty !== 0) settings.presence_penalty = presencePenalty;
-
-  const frequencyPenalty = parseFloat(frequencyPenaltyEl.value);
-  if (frequencyPenalty !== 0) settings.frequency_penalty = frequencyPenalty;
-
-  const topLogprobs = parseInt(document.getElementById('top-logprobs').value) || 0;
-  if (topLogprobs > 0) settings.top_logprobs = topLogprobs;
-
-  // Tool settings
-  const allowedTools = Array.from(document.querySelectorAll('input[name="allowed-tools"]:checked'))
-    .map(cb => cb.value);
-  settings.allowed_tools = allowedTools;
-
-  const toolChoice = document.getElementById('tool-choice').value;
-  if (toolChoice) settings.tool_choice = toolChoice;
-
-  if (document.getElementById('parallel-tool-calls').checked) {
-    settings.parallel_tool_calls = true;
+  if (provider === 'custom') {
+    settings.api_url = document.getElementById('api-url').value;
+    settings.api_path = document.getElementById('api-path').value;
+    const authorization = document.getElementById('authorization').value.trim();
+    if (authorization) settings.authorization = authorization;
   }
 
-  const maxToolCalls = parseInt(document.getElementById('max-tool-calls').value) || 0;
-  if (maxToolCalls > 0) settings.max_tool_calls = maxToolCalls;
+  // Sampling parameters (only include individually enabled ones)
+  if (!temperatureEl.disabled) {
+    settings.temperature = parseFloat(temperatureEl.value);
+  }
+  if (!topPEl.disabled) {
+    const topP = parseFloat(topPEl.value);
+    if (topP < 1) settings.top_p = topP;
+  }
+  if (!presencePenaltyEl.disabled) {
+    const presencePenalty = parseFloat(presencePenaltyEl.value);
+    if (presencePenalty !== 0) settings.presence_penalty = presencePenalty;
+  }
+  if (!frequencyPenaltyEl.disabled) {
+    const frequencyPenalty = parseFloat(frequencyPenaltyEl.value);
+    if (frequencyPenalty !== 0) settings.frequency_penalty = frequencyPenalty;
+  }
+  if (!document.getElementById('max-tokens').disabled) {
+    settings.max_tokens = parseInt(document.getElementById('max-tokens').value) || 0;
+  }
+  if (!document.getElementById('top-logprobs').disabled) {
+    const topLogprobs = parseInt(document.getElementById('top-logprobs').value) || 0;
+    if (topLogprobs > 0) settings.top_logprobs = topLogprobs;
+  }
+
+  // Tool settings
+  if (toolsEnabledEl.checked) {
+    settings.tools_enabled = true;
+
+    const allowedTools = Array.from(document.querySelectorAll('input[name="allowed-tools"]:checked'))
+      .map(cb => cb.value);
+    settings.allowed_tools = allowedTools;
+
+    const toolChoice = document.getElementById('tool-choice').value;
+    if (toolChoice) settings.tool_choice = toolChoice;
+
+    if (document.getElementById('parallel-tool-calls').checked) {
+      settings.parallel_tool_calls = true;
+    }
+
+    const maxToolCalls = parseInt(document.getElementById('max-tool-calls').value) || 0;
+    if (maxToolCalls > 0) settings.max_tool_calls = maxToolCalls;
+  }
 
   // Response control
   const truncation = document.getElementById('truncation').value;
@@ -488,6 +555,27 @@ function stopPolling(requestId) {
   }
 }
 
+// Format the latency breakdown: total wall-clock time, summed HTTP request
+// time, and the async overhead (the difference) added by the request pipeline.
+function formatLatency(message) {
+  const total = message.total_duration;
+  const http = message.http_duration;
+
+  const parts = [];
+  if (total != null) parts.push(`Total: ${total.toFixed(3)}s`);
+  if (http != null) parts.push(`HTTP: ${http.toFixed(3)}s`);
+  if (total != null && http != null) {
+    const overhead = Math.max(0, total - http);
+    parts.push(`Async overhead: ${overhead.toFixed(3)}s`);
+  }
+
+  if (message.request_count > 1) {
+    parts.push(`Tool calls: ${message.request_count - 1}`);
+  }
+
+  return parts.join(' · ');
+}
+
 // Handle result
 function handleResult(requestId, result) {
   const pending = pendingRequests.get(requestId);
@@ -497,10 +585,23 @@ function handleResult(requestId, result) {
   if (messageEl) {
     // Replace the pending placeholder with actual content
     if (result.success) {
-      const renderedContent = Markdown.render(result.message.content);
+      let renderedContent;
+      if (result.message.structured) {
+        // Display structured responses as pretty-formatted JSON
+        let formattedJson;
+        try {
+          formattedJson = JSON.stringify(JSON.parse(result.message.content), null, 2);
+        } catch (_e) {
+          formattedJson = result.message.content;
+        }
+        renderedContent = `<pre class="structured-json">${Markdown.escapeHtml(formattedJson)}</pre>`;
+      } else {
+        renderedContent = Markdown.render(result.message.content);
+      }
       let metaText = `Tokens: ${result.message.input_tokens || 0} in / ${result.message.output_tokens || 0} out`;
-      if (result.message.duration) {
-        metaText += ` | ${result.message.duration}s`;
+      const latency = formatLatency(result);
+      if (latency) {
+        metaText += ` | ${latency}`;
       }
 
       messageEl.className = 'message assistant';
@@ -521,7 +622,10 @@ function handleResult(requestId, result) {
       chatState = result.session;
       showToast('Response received', 'success');
     } else {
-      const errorContent = Markdown.escapeHtml(`Error: ${result.error.type} - ${result.error.message}`).replace(/\n/g, '<br>');
+      let errorContent = Markdown.escapeHtml(`Error: ${result.error.type} - ${result.error.message}`).replace(/\n/g, '<br>');
+      if (result.error.details) {
+        errorContent += '<br><br><pre>' + Markdown.escapeHtml(JSON.stringify(result.error.details, null, 2)) + '</pre>';
+      }
       messageEl.className = 'message error';
       messageEl.innerHTML = `
         <div class="message-role">Error</div>
