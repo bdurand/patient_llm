@@ -11,6 +11,7 @@ Integrate LLM APIs with your Ruby backend applications without blocking threads.
 - **OpenAI Chat Completions** (`:chat_completion`) -- for OpenAI and compatible providers
 - **OpenAI Responses** (`:open_responses`) -- for the newer OpenAI Responses API
 - **Anthropic Messages** (`:messages`) -- for the Anthropic Claude API
+- **Bedrock Converse** (`:converse`) -- for AWS Bedrock Converse API
 
 LLM API calls can take a long time to complete. With traditional synchronous HTTP clients, these requests tie up application threads while waiting for responses. This gem solves that problem by using async HTTP via [PatientHttp](https://github.com/bdurand/patient_http), freeing up your threads to do other work while waiting for the LLM provider to respond.
 
@@ -53,17 +54,17 @@ Create a callback class with `on_complete` and `on_error` methods:
 
 ```ruby
 class LLMCallback
-  def on_complete(session, provider, llm_response, callback_args, response)
+  def on_complete(session, provider, llm_response, callback_args, http_response)
     # session       - the PromptBuilder::Session with the response already added
     # provider      - the provider name (String)
     # llm_response  - a PromptBuilder::Response with the assistant's response
-    # callback_args - a PatientHttp::CallbackArgs containing your custom data
-    # response      - the raw PatientHttp::Response with timing info
+    # callback_args - a PatientHttp::CallbackArgs containing data you passed in the `ask` call
+    # http_response - the raw PatientHttp::Response
 
     # Access the response content
     puts llm_response.text
     puts "Tokens: #{llm_response.usage.input_tokens} in / #{llm_response.usage.output_tokens} out"
-    puts "Duration: #{response.duration}s"
+    puts "Duration: #{http_response.duration}s"
 
     # Save the session state for future turns (response is already in the session)
     save_session_state(callback_args[:user_id], session.to_h)
@@ -111,7 +112,7 @@ The request is sent asynchronously. When the LLM responds, your callback's `on_c
 `PromptBuilder::Session` supports various configuration:
 
 ```ruby
-session = PromptBuilder::Session.new(model: "gpt-4o")
+session = PromptBuilder::Session.new(model: "gpt-5.4")
 
 # Set system instructions
 session.instructions = "You are a helpful assistant."

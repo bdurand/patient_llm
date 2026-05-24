@@ -62,7 +62,7 @@ module PatientLLM
     # @param headers [Hash, nil] Additional headers merged on top of provider headers
     # @param params [Hash, nil] Additional params merged into the request payload
     # @return [Object] Handler-specific identifier for the enqueued request
-    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, completion_path: nil, headers: nil, params: nil, tool_iteration: 0) # :nodoc: tool_iteration is internal
+    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, completion_path: nil, headers: nil, params: nil, tool_iteration: 0, original_request_id: nil) # :nodoc: tool_iteration and original_request_id are internal
       provider_config = self.provider(provider) || {}
       provider_name = provider.to_s
 
@@ -102,7 +102,8 @@ module PatientLLM
           callback: callback.to_s,
           custom: callback_args,
           request_options: request_options,
-          tool_iteration: tool_iteration
+          tool_iteration: tool_iteration,
+          original_request_id: original_request_id
         }
       )
     end

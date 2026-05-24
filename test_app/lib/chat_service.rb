@@ -62,7 +62,7 @@ class ChatService
 
       Sidekiq.redis do |conn|
         conn.multi do |transaction|
-          transaction.hmset(key, redis_values)
+          transaction.hset(key, redis_values)
           transaction.expire(key, RESULT_TTL)
         end
       end

@@ -38,17 +38,10 @@ PatientLLM.configure do |config|
   end
 end
 
-class LLMRequestObserver < PatientHttp::ProcessorObserver
-  def request_end(request_task)
-    original_id = request_task.callback_args.dig("custom", "original_request_id") || request_task.original_id
-    ChatService.record_request_duration(original_id, request_task.duration)
-  end
-end
-
 PatientHttp::Sidekiq.configure do |config|
   config.request_timeout = 120
-  config.observers << LLMRequestObserver.new
   config.encryption_key = "supersecretkeyfortesting"
+  config.sidekiq_options = {retry_count: 1}
 end
 
 # Register tools

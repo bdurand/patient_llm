@@ -29,15 +29,16 @@ module PatientLLM
       provider_name = callback_args[:provider]
       request_options = callback_args[:request_options] || {}
       user_callback = resolve_user_callback(callback_args)
+      original_request_id = callback_args[:original_request_id] || response.request_id
 
       serializer = resolve_serializer(provider_name, request_options)
       llm_response = PromptBuilder::Response.parse(response.json, serializer)
 
       if should_auto_execute_tools?(llm_response)
-        continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, request_options)
+        continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, request_options, original_request_id)
       else
         session.add_response(llm_response)
-        user_callback.on_complete(session, provider_name, llm_response, user_callback_args(callback_args), response)
+        user_callback.on_complete(session, provider_name, llm_response, user_callback_args(callback_args), response, original_request_id)
       end
     end
 
@@ -49,8 +50,9 @@ module PatientLLM
       callback_args = error.callback_args
       session = restore_session(callback_args)
       provider_name = callback_args[:provider]
+      original_request_id = callback_args.fetch(:original_request_id, error.response&.request_id)
       user_callback = resolve_user_callback(callback_args)
-      user_callback.on_error(session, provider_name, user_callback_args(callback_args), error)
+      user_callback.on_error(session, provider_name, user_callback_args(callback_args), error, original_request_id)
     end
 
     private
@@ -71,7 +73,7 @@ module PatientLLM
     end
 
     def user_callback_args(callback_args)
-      PatientHttp::CallbackArgs.new(callback_args.fetch(:custom, {}) || {})
+      PatientHttp::CallbackArgs.new(callback_args[:custom] || {})
     end
 
     def resolve_serializer(provider_name, request_options)
@@ -91,16 +93,11 @@ module PatientLLM
       end
     end
 
-    def continue_tool_loop(session, provider_name, llm_response, callback_args, http_response, user_callback, request_options)
+    def continue_tool_loop(session, provider_name, llm_response, callback_args, http_response, user_callback, request_options, original_request_id)
       iteration = callback_args.fetch(:tool_iteration, 0).to_i
       if iteration >= MAX_TOOL_ITERATIONS
         raise "Tool-call loop exceeded #{MAX_TOOL_ITERATIONS} iterations"
       end
-
-      # Preserve the original request_id so the final result can be stored
-      # under the ID the caller is polling for.
-      custom = callback_args.fetch(:custom, {}) || {}
-      original_request_id = custom["original_request_id"] || http_response.request_id
 
       session.add_response(llm_response)
 
@@ -132,18 +129,21 @@ module PatientLLM
           usage: llm_response.usage
         )
         session.add_response(halt_response)
-        user_callback.on_complete(session, provider_name, halt_response, user_callback_args(callback_args), http_response)
+        user_callback.on_complete(session, provider_name, halt_response, user_callback_args(callback_args), http_response, original_request_id)
         return
       end
 
+      if user_callback.respond_to?(:on_tool_use)
+        user_callback.on_tool_use(session, provider_name, llm_response, user_callback_args(callback_args), http_response, original_request_id)
+      end
+
       # Re-ask with the updated session
-      custom_args = callback_args.fetch(:custom, {}) || {}
-      custom_args = custom_args.merge("original_request_id" => original_request_id)
       ask_kwargs = {
         provider: provider_name.to_sym,
         callback: callback_args[:callback],
-        callback_args: custom_args,
-        tool_iteration: iteration + 1
+        callback_args: callback_args[:custom],
+        tool_iteration: iteration + 1,
+        original_request_id: original_request_id
       }
 
       # Restore per-request overrides
