@@ -198,15 +198,19 @@ class ChatAction
       session.user(user_message)
     end
 
-    request_id = PatientLLM.ask(
+    request_id = SecureRandom.uuid
+
+    PatientLLM.ask(
       session,
       provider: provider,
       callback: LLMCallback,
+      callback_args: {request_id: request_id},
       url: url_override,
       serializer: serializer_override,
       completion_path: completion_path_override,
       headers: headers_override
     )
+
     ChatService.record_request_start(request_id)
 
     [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]

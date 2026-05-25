@@ -370,6 +370,14 @@ RSpec.describe PatientLLM do
           expect(captured.call[:request].url.to_s).to eq("https://example.com/v1/chat")
         end
       end
+
+      it "embeds the session model in the default Gemini path" do
+        gemini_session = PromptBuilder::Session.new(model: "gemini-2.5-pro").tap { |s| s.user("Hello") }
+        with_fake_handler do |captured|
+          PatientLLM.ask(gemini_session, provider: :gemini, callback: "TestCallback", serializer: :gemini, url: "https://generativelanguage.googleapis.com")
+          expect(captured.call[:request].url.to_s).to eq("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent")
+        end
+      end
     end
 
     describe "payload" do

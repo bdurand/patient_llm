@@ -42,6 +42,19 @@ PatientHttp::Sidekiq.configure do |config|
   config.request_timeout = 120
   config.encryption_key = "supersecretkeyfortesting"
   config.sidekiq_options = {retry_count: 1}
+  config.on_retries_exhausted do |error|
+    result = {
+      success: false,
+      error: {
+        type: error.error_type.to_s,
+        message: error.message,
+        error_class: error.error_class
+      },
+      timestamp: Time.now.iso8601
+    }
+    request_id = error.callback_args[:request_id]
+    ChatService.set_result(request_id, result)
+  end
 end
 
 # Register tools

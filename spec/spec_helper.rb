@@ -6,10 +6,10 @@ require_relative "../lib/patient_llm"
 
 # Mock callback class for testing
 class TestCallback
-  def on_complete(session, provider, llm_response, callback_args, http_response)
+  def on_complete(session:, provider:, llm_response:, callback_args:, http_response:, request_id:)
   end
 
-  def on_error(session, provider, callback_args, error)
+  def on_error(session:, provider:, callback_args:, error:, http_response:, request_id:)
   end
 end
 

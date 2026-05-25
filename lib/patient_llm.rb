@@ -8,15 +8,19 @@ module PatientLLM
 
   autoload :Configuration, File.expand_path("patient_llm/configuration", __dir__)
   autoload :HaltError, File.expand_path("patient_llm/halt_error", __dir__)
+  autoload :MaxToolIterationsError, File.expand_path("patient_llm/max_tool_iterations_error", __dir__)
   autoload :Callback, File.expand_path("patient_llm/callback", __dir__)
 
-  # Default API paths per serializer format.
+  # Default API paths per serializer format. The Gemini path embeds a
+  # `{model}` placeholder that is replaced with the session's model at
+  # dispatch time, matching Google's `/v1beta/models/{model}:generateContent`
+  # endpoint.
   SERIALIZER_PATHS = {
     chat_completion: "/v1/chat/completions",
     open_responses: "/v1/responses",
     messages: "/v1/messages",
     converse: "/converse",
-    gemini: "/v1beta/generateContent"
+    gemini: "/v1beta/models/{model}:generateContent"
   }.freeze
 
   # Required version header for the Anthropic Messages API.
@@ -66,12 +70,19 @@ module PatientLLM
       provider_config = self.provider(provider) || {}
       provider_name = provider.to_s
 
+      if tool_iteration.zero?
+        PatientLLM::Callback.validate_callback_class!(PatientHttp::ClassHelper.resolve_class_name(callback.to_s))
+      end
+
       resolved_url = url || provider_config[:url]
       raise ArgumentError, "No API base URL configured. Set url: or register a provider with a url." unless resolved_url
 
       resolved_serializer = (serializer || provider_config[:serializer] || :chat_completion).to_sym
       validate_serializer!(resolved_serializer)
       resolved_completion_path = completion_path || provider_config[:completion_path] || SERIALIZER_PATHS[resolved_serializer] || "/v1/chat/completions"
+      if resolved_completion_path.include?("{model}")
+        resolved_completion_path = resolved_completion_path.gsub("{model}", session.model.to_s)
+      end
       resolved_headers = (provider_config[:headers] || {}).merge(headers || {})
       if resolved_serializer == :messages && !resolved_headers.key?("anthropic-version")
         resolved_headers = {"anthropic-version" => ANTHROPIC_VERSION}.merge(resolved_headers)
@@ -100,7 +111,7 @@ module PatientLLM
           session: session.to_h,
           provider: provider_name,
           callback: callback.to_s,
-          custom: callback_args,
+          custom: callback_args.transform_keys(&:to_s),
           request_options: request_options,
           tool_iteration: tool_iteration,
           original_request_id: original_request_id

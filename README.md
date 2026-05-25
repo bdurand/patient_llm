@@ -12,17 +12,18 @@ Integrate LLM APIs with your Ruby backend applications without blocking threads.
 - **OpenAI Responses** (`:open_responses`) -- for the newer OpenAI Responses API
 - **Anthropic Messages** (`:messages`) -- for the Anthropic Claude API
 - **Bedrock Converse** (`:converse`) -- for AWS Bedrock Converse API
+- **Gemini** (`:gemini`) -- for the Google Gemini API
 
 LLM API calls can take a long time to complete. With traditional synchronous HTTP clients, these requests tie up application threads while waiting for responses. This gem solves that problem by using async HTTP via [PatientHttp](https://github.com/bdurand/patient_http), freeing up your threads to do other work while waiting for the LLM provider to respond.
 
 ## Prerequisites
 
-This gem delegates actual HTTP dispatch to `patient_http`, which requires a registered request handler before any `LLM.ask` call will succeed. In a normal app you get this handler by adding one of the job-system integrations:
+This gem delegates actual HTTP dispatch to `patient_http`, which requires a registered request handler before any `PatientLLM.ask` call will succeed. In a normal app you get this handler by adding one of the job-system integrations:
 
 - [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq)
 - [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue)
 
-Without a handler, `LLM.ask` raises `RuntimeError: No request handler registered`.
+Without a handler, `PatientLLM.ask` raises `RuntimeError: No request handler registered`.
 
 ## Usage
 
@@ -50,16 +51,19 @@ end
 
 ### Creating a Callback Class
 
-Create a callback class with `on_complete` and `on_error` methods:
+Create a callback class with `on_complete` and `on_error` methods. Callbacks receive
+**keyword arguments**, and you only declare the ones you need — the dispatcher inspects your
+method signature and passes just those values (or everything if you declare `**kwargs`):
 
 ```ruby
 class LLMCallback
-  def on_complete(session, provider, llm_response, callback_args, http_response)
+  def on_complete(session:, provider:, llm_response:, callback_args:, http_response:, request_id:)
     # session       - the PromptBuilder::Session with the response already added
     # provider      - the provider name (String)
     # llm_response  - a PromptBuilder::Response with the assistant's response
     # callback_args - a PatientHttp::CallbackArgs containing data you passed in the `ask` call
     # http_response - the raw PatientHttp::Response
+    # request_id    - the original request id (stable across tool-call iterations)
 
     # Access the response content
     puts llm_response.text
@@ -70,15 +74,43 @@ class LLMCallback
     save_session_state(callback_args[:user_id], session.to_h)
   end
 
-  def on_error(session, provider, callback_args, error)
+  def on_error(session:, provider:, callback_args:, error:, http_response:, request_id:)
     # error is a PatientHttp::RequestError, ClientError (HTTP 4xx),
     # or ServerError (HTTP 5xx). All respond to:
     #   error.error_type  - :timeout, :connection, :ssl, :http_error, etc.
     #   error.message     - human-readable message
     #   error.error_class - the original exception class (for RequestError)
     #   error.request_id
-    # HTTP errors additionally expose error.response (a PatientHttp::Response).
+    # http_response is the raw PatientHttp::Response for HTTP errors, or nil for
+    # transport errors (timeouts, connection failures).
 
+    log_error(error.error_type, error.message)
+  end
+end
+```
+
+#### Callback keyword parameters
+
+Each callback may declare any subset of the keywords below, in any order. Declaring
+`**kwargs` receives them all. `PatientLLM.ask` validates your callback's signatures up
+front and raises an `ArgumentError` if a method uses an unsupported name, a positional
+parameter, or omits the required keyword.
+
+| Callback              | Supported keywords                                                          | Required       |
+|-----------------------|-----------------------------------------------------------------------------|----------------|
+| `on_complete`         | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | `llm_response` |
+| `on_tool_use` (optional) | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | `llm_response` |
+| `on_error`            | `session`, `provider`, `callback_args`, `error`, `http_response`, `request_id`        | `error`        |
+
+For example, a callback that only cares about the response text can be as small as:
+
+```ruby
+class LLMCallback
+  def on_complete(llm_response:)
+    puts llm_response.text
+  end
+
+  def on_error(error:)
     log_error(error.error_type, error.message)
   end
 end
@@ -160,7 +192,7 @@ PatientLLM.ask(session,
 
 ### URL composition
 
-The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `completion_path` (default `/v1/chat/completions`). Trailing slashes on the base and leading slashes on the path are normalized, so:
+The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `completion_path`. When you don't set `completion_path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time, which is how the Gemini default targets Google's `/v1beta/models/{model}:generateContent` endpoint. Trailing slashes on the base and leading slashes on the path are normalized, so:
 
 ```
 url = "https://api.openai.com"            completion_path = "/v1/chat/completions"
@@ -222,7 +254,9 @@ When the model responds with tool calls, the gem automatically:
 4. Re-issues the request asynchronously.
 5. Repeats until the model returns a plain text response (or a tool raises `HaltError`). Your `on_complete` callback only fires for the final text response.
 
-The loop is capped at `PatientLLM::Callback::MAX_TOOL_ITERATIONS` (10) iterations per conversation to prevent runaway calls. Exceeding the cap raises inside the callback and surfaces via your error handler.
+If you define an optional `on_tool_use` method on your callback, it is invoked once per tool-execution round (after the tools run, before the next request is issued) so you can observe intermediate progress.
+
+The loop is capped at `PatientLLM::Callback::MAX_TOOL_ITERATIONS` (10) iterations per conversation to prevent runaway calls. When the cap is exceeded, your `on_error` callback is invoked with a `PatientHttp::RequestError` whose `error_type` is `:max_tool_iterations` and whose `error_class` is `PatientLLM::MaxToolIterationsError`, so you can handle it alongside transport and HTTP errors.
 
 > [!NOTE]
 > Tool handlers execute synchronously inside the callback worker (e.g. a Sidekiq job). Keep handlers fast to avoid blocking the worker pool. If a tool needs to do slow work (external API calls, heavy queries), consider offloading that work and using `HaltError` to stop the auto-loop.
@@ -234,7 +268,7 @@ Raise `PatientLLM::HaltError` from a tool handler to stop the auto-loop and surf
 ```ruby
 PromptBuilder.tool_registry.register("auth", description: "Authenticate", parameters: {...}) do |args|
   unless AuthService.valid?(args["token"])
-    raise PatientLLM::HaltError.new("Authentication failed.")
+    raise PatientLLM::HaltError.new(content: "Authentication failed.")
   end
   AuthService.session_info(args["token"])
 end
@@ -254,7 +288,7 @@ PatientLLM.ask(session, provider: :openai, callback: LLMCallback,
   callback_args: {conversation_id: conversation.id})
 
 # In your callback, save the state (response is already in the session):
-def on_complete(session, provider, llm_response, callback_args, response)
+def on_complete(session:, callback_args:, **)
   save_to_database(callback_args[:conversation_id], session.to_h)
 end
 

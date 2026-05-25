@@ -7,18 +7,21 @@ class LLMCallback
   # @param provider [String] the provider name
   # @param llm_response [PromptBuilder::Response] the LLM response
   # @param callback_args [PatientHttp::CallbackArgs] additional callback arguments
-  # @param response [PatientHttp::Response] the HTTP response object
+  # @param http_response [PatientHttp::Response] the HTTP response object
   # @param request_id [String] the original request ID
-  def on_complete(session, provider, llm_response, callback_args, response, request_id)
-    puts "*** on_complete for #{request_id} ***"
+  def on_complete(session:, provider:, llm_response:, callback_args:, http_response:)
     message = {
       role: "assistant",
       content: llm_response.text,
       model_id: llm_response.model,
       input_tokens: llm_response.usage&.input_tokens,
       output_tokens: llm_response.usage&.output_tokens,
-      duration: response.duration&.round(1)
+      duration: http_response.duration&.round(1)
     }
+
+    http_response.headers.each do |key, value|
+      puts "LLM response header: #{key} = #{value}"
+    end
 
     text_format = session.text&.dig("format", "type")
     message[:structured] = true if text_format == "json_schema"
@@ -30,14 +33,15 @@ class LLMCallback
       timestamp: Time.now.iso8601
     }
 
-    ChatService.record_request_duration(request_id, response.duration)
+    request_id = callback_args[:request_id]
+    ChatService.record_request_duration(request_id, http_response.duration)
     ChatService.set_result(request_id, result)
 
     Sidekiq.logger.info("LLM completion stored: #{llm_response.text&.slice(0, 100)}...")
   end
 
-  def on_tool_use(session, provider, llm_response, callback_args, response, request_id)
-    ChatService.record_request_duration(request_id, response.duration)
+  def on_tool_use(llm_response:, http_response:, request_id:)
+    ChatService.record_request_duration(request_id, http_response.duration)
   end
 
   # Handle errors during an LLM request.
@@ -46,7 +50,8 @@ class LLMCallback
   # @param provider [String] the provider name
   # @param callback_args [PatientHttp::CallbackArgs] additional callback arguments
   # @param error [PatientHttp::Error] the error object
-  def on_error(session, provider, callback_args, error, request_id)
+  # @param request_id [String] the original request ID
+  def on_error(session:, provider:, callback_args:, error:)
     result = {
       success: false,
       error: {
@@ -57,6 +62,8 @@ class LLMCallback
       session: session.to_h,
       timestamp: Time.now.iso8601
     }
+
+    request_id = callback_args[:request_id]
 
     if error.respond_to?(:response) && error.response
       response = error.response

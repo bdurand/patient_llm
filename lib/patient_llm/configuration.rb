@@ -20,7 +20,7 @@ module PatientLLM
     # @param name [Symbol, String] Provider name
     # @param url [String] Base URL for the provider API
     # @param headers [Hash] Default headers for requests
-    # @param serializer [Symbol] API format (:chat_completion, :open_responses, :messages)
+    # @param serializer [Symbol] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
     # @param completion_path [String, nil] Override the default endpoint path
     # @param params [Hash] Additional parameters to merge into every request payload
     # @return [void]
