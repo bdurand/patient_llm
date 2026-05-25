@@ -9,9 +9,8 @@ class ChatService
     #
     # @param request_id [String] the request identifier
     # @param result [Hash] the result data to store
-    def set_result(request_id, result)
-      start_time = result_value(request_id, "start_time").to_f
-      total_duration = Time.now.to_f - start_time
+    # @param total_duration [Float] the total duration of the request
+    def set_result(request_id, result, total_duration)
       update_result_hash(request_id, payload: result, total_duration: total_duration)
     end
 
@@ -33,10 +32,6 @@ class ChatService
       delete_result(request_id)
 
       payload
-    end
-
-    def record_request_start(request_id)
-      update_result_hash(request_id, {"start_time" => Time.now.to_f.round(6)})
     end
 
     def record_request_duration(request_id, duration)

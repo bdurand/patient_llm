@@ -19,10 +19,6 @@ class LLMCallback
       duration: http_response.duration&.round(1)
     }
 
-    http_response.headers.each do |key, value|
-      puts "LLM response header: #{key} = #{value}"
-    end
-
     text_format = session.text&.dig("format", "type")
     message[:structured] = true if text_format == "json_schema"
 
@@ -34,8 +30,9 @@ class LLMCallback
     }
 
     request_id = callback_args[:request_id]
+    total_duration = Time.now.to_f - callback_args[:start_time].to_f if callback_args[:start_time]
     ChatService.record_request_duration(request_id, http_response.duration)
-    ChatService.set_result(request_id, result)
+    ChatService.set_result(request_id, result, total_duration)
 
     Sidekiq.logger.info("LLM completion stored: #{llm_response.text&.slice(0, 100)}...")
   end
@@ -64,6 +61,7 @@ class LLMCallback
     }
 
     request_id = callback_args[:request_id]
+    total_duration = Time.now.to_f - callback_args[:start_time].to_f if callback_args[:start_time]
 
     if error.respond_to?(:response) && error.response
       response = error.response
@@ -83,7 +81,7 @@ class LLMCallback
       ChatService.record_request_duration(request_id, response.duration)
     end
 
-    ChatService.set_result(request_id, result)
+    ChatService.set_result(request_id, result, total_duration)
 
     log_message = "LLM error: #{error.error_type} - #{error.message}"
     log_message += " | response_body: #{response_body}" if response_body

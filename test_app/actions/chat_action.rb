@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "net/http"
 
 class ChatAction
   def call(env)
@@ -142,24 +143,8 @@ class ChatAction
       session.truncation = params["truncation"]
     end
 
-    if params["store"]
-      session.store = true
-    end
-
     if params["service_tier"] && !params["service_tier"].empty?
       session.service_tier = params["service_tier"]
-    end
-
-    if params["include"].is_a?(Array) && !params["include"].empty?
-      session.include = params["include"]
-    end
-
-    if params["safety_identifier"] && !params["safety_identifier"].empty?
-      session.safety_identifier = params["safety_identifier"]
-    end
-
-    if params["prompt_cache_key"] && !params["prompt_cache_key"].empty?
-      session.prompt_cache_key = params["prompt_cache_key"]
     end
 
     if params["metadata"].is_a?(Hash) && !params["metadata"].empty?
@@ -184,13 +169,24 @@ class ChatAction
       content = []
       content << {"type" => "input_text", "text" => user_message} unless user_message.empty?
       file_attachments.each do |attachment|
-        media_type = attachment["media_type"].to_s
-        if media_type.start_with?("image/")
-          content << {"type" => "input_image", "image_url" => "data:#{media_type};base64,#{attachment["data"]}"}
+        if attachment["url"]
+          media_type = resolve_url_content_type(attachment["url"])
+          if media_type&.start_with?("image/")
+            content << {"type" => "input_image", "url" => attachment["url"], "media_type" => media_type}
+          else
+            entry = {"type" => "input_file", "url" => attachment["url"]}
+            entry["media_type"] = media_type if media_type
+            content << entry
+          end
         else
-          entry = {"type" => "input_file", "file_data" => attachment["data"]}
-          entry["filename"] = attachment["name"] if attachment["name"]
-          content << entry
+          media_type = attachment["media_type"].to_s
+          if media_type.start_with?("image/")
+            content << {"type" => "input_image", "url" => "data:#{media_type};base64,#{attachment["data"]}"}
+          else
+            entry = {"type" => "input_file", "url" => "data:#{media_type};base64,#{attachment["data"]}"}
+            entry["filename"] = attachment["name"] if attachment["name"]
+            content << entry
+          end
         end
       end
       session.user(content)
@@ -204,19 +200,31 @@ class ChatAction
       session,
       provider: provider,
       callback: LLMCallback,
-      callback_args: {request_id: request_id},
+      callback_args: {request_id: request_id, start_time: Time.now.to_f},
       url: url_override,
       serializer: serializer_override,
       completion_path: completion_path_override,
       headers: headers_override
     )
 
-    ChatService.record_request_start(request_id)
-
     [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]
   rescue PromptBuilder::UnsupportedFormatError => e
     [400, {"content-type" => "application/json"}, [{error: e.message}.to_json]]
   rescue JSON::ParserError => e
     [400, {"content-type" => "application/json"}, [{error: "Invalid JSON: #{e.message}"}.to_json]]
+  end
+
+  private
+
+  def resolve_url_content_type(url)
+    uri = URI.parse(url)
+    http = Net::HTTP.new(uri.host, uri.port)
+    http.use_ssl = (uri.scheme == "https")
+    http.open_timeout = 5
+    http.read_timeout = 5
+    response = http.head(uri.request_uri)
+    response["content-type"]&.split(";")&.first&.strip
+  rescue
+    nil
   end
 end

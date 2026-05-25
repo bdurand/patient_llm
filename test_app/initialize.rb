@@ -53,7 +53,9 @@ PatientHttp::Sidekiq.configure do |config|
       timestamp: Time.now.iso8601
     }
     request_id = error.callback_args[:request_id]
-    ChatService.set_result(request_id, result)
+    start_time = error.callback_args[:start_time]
+    total_duration = Time.now.to_f - start_time if start_time
+    ChatService.set_result(request_id, result, total_duration)
   end
 end
 

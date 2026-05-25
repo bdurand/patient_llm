@@ -31,6 +31,7 @@
           <div class="chat-input-buttons">
             <input type="file" id="file-input" multiple accept="image/*,.pdf,.txt,.csv,.json,.md,.xml,.yaml,.yml,.log,.html,.css,.js,.rb,.py" hidden>
             <button type="button" id="attach-btn" title="Attach files">&#x1F4CE;</button>
+            <button type="button" id="attach-url-btn" title="Attach URL">&#x1F517;</button>
             <button type="submit" id="send-btn" title="Send message">&#x27A4;</button>
             <button type="button" id="reset-btn" class="reset-btn" title="Reset conversation">&#x21BA;</button>
           </div>
@@ -209,13 +210,6 @@
           </div>
 
           <div class="setting-group">
-            <label>
-              <input type="checkbox" id="store">
-              Store Response
-            </label>
-          </div>
-
-          <div class="setting-group">
             <label for="service-tier">Service Tier</label>
             <select id="service-tier">
               <option value="" selected>(not set)</option>
@@ -224,30 +218,11 @@
               <option value="flex">flex</option>
             </select>
           </div>
-
-          <div class="setting-group">
-            <label>Include</label>
-            <div class="checkbox-group">
-              <label><input type="checkbox" name="include" value="usage"> usage</label>
-              <label><input type="checkbox" name="include" value="file_search_results"> file_search_results</label>
-              <label><input type="checkbox" name="include" value="reasoning.encrypted_content"> reasoning.encrypted_content</label>
-            </div>
-          </div>
         </details>
 
         <!-- Advanced -->
         <details class="settings-section">
           <summary>Advanced</summary>
-
-          <div class="setting-group">
-            <label for="safety-identifier">Safety Identifier</label>
-            <input type="text" id="safety-identifier" placeholder="Optional safety identifier" autocomplete="off" autocapitalize="off">
-          </div>
-
-          <div class="setting-group">
-            <label for="prompt-cache-key">Prompt Cache Key</label>
-            <input type="text" id="prompt-cache-key" placeholder="Optional cache key" autocomplete="off" autocapitalize="off">
-          </div>
 
           <div class="setting-group">
             <label>Metadata</label>

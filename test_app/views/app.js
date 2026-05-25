@@ -29,6 +29,7 @@ const addMetadataBtn = document.getElementById('add-metadata-btn');
 const toastEl = document.getElementById('toast');
 const fileInputEl = document.getElementById('file-input');
 const attachBtn = document.getElementById('attach-btn');
+const attachUrlBtn = document.getElementById('attach-url-btn');
 const attachmentPreviewsEl = document.getElementById('attachment-previews');
 const chatInputArea = document.getElementById('chat-input-area');
 const providerEl = document.getElementById('provider');
@@ -142,12 +143,17 @@ function renderAttachmentPreview(attachment) {
   chip.className = 'attachment-chip';
   chip.dataset.attachmentId = attachment.id;
 
-  const isImage = attachment.mediaType.startsWith('image/');
-  if (isImage) {
+  const isImage = attachment.mediaType && attachment.mediaType.startsWith('image/');
+  if (isImage && attachment.dataUrl) {
     const img = document.createElement('img');
     img.src = attachment.dataUrl;
     img.alt = attachment.name;
     chip.appendChild(img);
+  } else if (attachment.url) {
+    const icon = document.createElement('span');
+    icon.className = 'attachment-chip-icon';
+    icon.textContent = '\u{1F517}';
+    chip.appendChild(icon);
   } else {
     const icon = document.createElement('span');
     icon.className = 'attachment-chip-icon';
@@ -182,15 +188,40 @@ function clearAttachments() {
 }
 
 function serializeAttachments() {
-  return attachments.map(a => ({
-    name: a.name,
-    media_type: a.mediaType,
-    data: a.data
-  }));
+  return attachments.map(a => {
+    if (a.url) {
+      return { name: a.name, url: a.url };
+    }
+    return {
+      name: a.name,
+      media_type: a.mediaType,
+      data: a.data
+    };
+  });
 }
 
 // Attach button → file picker
 attachBtn.addEventListener('click', () => fileInputEl.click());
+
+// Attach URL button
+attachUrlBtn.addEventListener('click', () => {
+  const url = prompt('Enter a URL to attach:');
+  if (!url || !url.trim()) return;
+  addUrlAttachment(url.trim());
+});
+
+async function addUrlAttachment(url) {
+  const id = ++attachmentIdCounter;
+  const attachment = {
+    id,
+    name: url,
+    url: url,
+    mediaType: null
+  };
+  attachments.push(attachment);
+  renderAttachmentPreview(attachment);
+  userMessageEl.required = (attachments.length === 0);
+}
 
 fileInputEl.addEventListener('change', () => {
   if (fileInputEl.files.length > 0) {
@@ -296,6 +327,9 @@ function addMessage(role, content, meta = null, messageAttachments = null) {
       if (a.media_type && a.media_type.startsWith('image/') && a.data) {
         return `<img class="message-attachment-thumb" src="data:${Markdown.escapeHtml(a.media_type)};base64,${a.data}" alt="${Markdown.escapeHtml(a.name)}" title="${Markdown.escapeHtml(a.name)}">`;
       }
+      if (a.url) {
+        return `<span class="message-attachment-badge">\u{1F517} ${Markdown.escapeHtml(a.url)}</span>`;
+      }
       return `<span class="message-attachment-badge">\u{1F4C4} ${Markdown.escapeHtml(a.name)}</span>`;
     }).join('');
     attachmentsHtml = `<div class="message-attachments">${badges}</div>`;
@@ -396,23 +430,8 @@ function getSettings() {
   const truncation = document.getElementById('truncation').value;
   if (truncation) settings.truncation = truncation;
 
-  if (document.getElementById('store').checked) {
-    settings.store = true;
-  }
-
   const serviceTier = document.getElementById('service-tier').value;
   if (serviceTier) settings.service_tier = serviceTier;
-
-  const includeChecked = Array.from(document.querySelectorAll('input[name="include"]:checked'))
-    .map(cb => cb.value);
-  if (includeChecked.length > 0) settings.include = includeChecked;
-
-  // Advanced
-  const safetyId = document.getElementById('safety-identifier').value.trim();
-  if (safetyId) settings.safety_identifier = safetyId;
-
-  const cacheKey = document.getElementById('prompt-cache-key').value.trim();
-  if (cacheKey) settings.prompt_cache_key = cacheKey;
 
   const metadata = getMetadata();
   if (Object.keys(metadata).length > 0) settings.metadata = metadata;

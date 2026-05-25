@@ -369,13 +369,15 @@ header h1 {
   cursor: not-allowed;
 }
 
-#attach-btn {
+#attach-btn,
+#attach-url-btn {
   background: transparent;
   border: 1px solid #555;
   color: #aaa;
 }
 
-#attach-btn:hover {
+#attach-btn:hover,
+#attach-url-btn:hover {
   border-color: #64b5f6;
   color: #64b5f6;
   background: transparent;
