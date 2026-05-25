@@ -12,7 +12,7 @@ set -euo pipefail
 
 : "${VALKEY_PORT:=23450}"
 : "${VALKEY_IMAGE:=docker.io/valkey/valkey:9.0.1-alpine}"
-: "${VALKEY_EXTRA_FLAGS:=--loglevel warning --maxmemory 30m --maxmemory-policy allkeys-lru --databases 10}"
+: "${VALKEY_EXTRA_FLAGS:=--loglevel warning --maxmemory 50m --maxmemory-policy allkeys-lru --databases 10}"
 
 run_cmd=""
 if command -v docker >/dev/null 2>&1; then

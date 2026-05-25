@@ -1,5 +1,4 @@
 # frozen_string_literal: true
-
 class AppConfig
   class << self
     def redis_url

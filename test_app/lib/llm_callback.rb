@@ -1,43 +1,54 @@
 # frozen_string_literal: true
 
 class LLMCallback
-  # Handle successful completion of an LLM request
+  # Handle successful completion of an LLM request.
   #
-  # @param chat [PatientHttp::LLM::Chat] the chat instance
-  # @param message [PatientHttp::LLM::Message] the response message
-  # @param callback_args [Array] additional callback arguments
-  # @param response [PatientHttp::LLM::Response] the response object
-  def on_complete(chat, message, callback_args, response)
-    # Add the assistant's response to the chat
-    chat.add_message(message) if message
+  # @param session [PromptBuilder::Session] the session instance
+  # @param provider [String] the provider name
+  # @param llm_response [PromptBuilder::Response] the LLM response
+  # @param callback_args [PatientHttp::CallbackArgs] additional callback arguments
+  # @param http_response [PatientHttp::Response] the HTTP response object
+  # @param request_id [String] the original request ID
+  def on_complete(session:, provider:, llm_response:, callback_args:, http_response:)
+    message = {
+      role: "assistant",
+      content: llm_response.text,
+      model_id: llm_response.model,
+      input_tokens: llm_response.usage&.input_tokens,
+      output_tokens: llm_response.usage&.output_tokens,
+      duration: http_response.duration&.round(1)
+    }
 
-    # Build result payload
+    text_format = session.text&.dig("format", "type")
+    message[:structured] = true if text_format == "json_schema"
+
     result = {
       success: true,
-      message: {
-        role: message.role.to_s,
-        content: message.content,
-        model_id: message.model_id,
-        input_tokens: message.input_tokens,
-        output_tokens: message.output_tokens,
-        duration: response.duration&.round(1)
-      },
-      chat: chat.as_json,
+      message: message,
+      session: session.to_h,
       timestamp: Time.now.iso8601
     }
 
-    ChatService.set_result(response.request_id, result)
+    request_id = callback_args[:request_id]
+    total_duration = Time.now.to_f - callback_args[:start_time].to_f if callback_args[:start_time]
+    ChatService.record_request_duration(request_id, http_response.duration)
+    ChatService.set_result(request_id, result, total_duration)
 
-    Sidekiq.logger.info("LLM completion stored: #{message.content&.slice(0, 100)}...")
+    Sidekiq.logger.info("LLM completion stored: #{llm_response.text&.slice(0, 100)}...")
   end
 
-  # Handle errors during an LLM request
+  def on_tool_use(llm_response:, http_response:, request_id:)
+    ChatService.record_request_duration(request_id, http_response.duration)
+  end
+
+  # Handle errors during an LLM request.
   #
-  # @param chat [PatientHttp::LLM::Chat] the chat instance
-  # @param callback_args [Array] additional callback arguments
-  # @param error [PatientHttp::LLM::Error] the error object
-  def on_error(chat, callback_args, error)
-    # Build error result payload
+  # @param session [PromptBuilder::Session] the session instance
+  # @param provider [String] the provider name
+  # @param callback_args [PatientHttp::CallbackArgs] additional callback arguments
+  # @param error [PatientHttp::Error] the error object
+  # @param request_id [String] the original request ID
+  def on_error(session:, provider:, callback_args:, error:)
     result = {
       success: false,
       error: {
@@ -45,11 +56,35 @@ class LLMCallback
         message: error.message,
         error_class: error.error_class
       },
-      chat: chat.as_json,
+      session: session.to_h,
       timestamp: Time.now.iso8601
     }
 
-    ChatService.set_result(error.request_id, result)
-    Sidekiq.logger.error("LLM error: #{error.error_type} - #{error.message}")
+    request_id = callback_args[:request_id]
+    total_duration = Time.now.to_f - callback_args[:start_time].to_f if callback_args[:start_time]
+
+    if error.respond_to?(:response) && error.response
+      response = error.response
+
+      if response.json?
+        begin
+          result[:error][:details] = response.json
+        rescue JSON::ParserError
+          # Ignore JSON parsing errors in the error response
+        end
+      end
+
+      if response.json? || response.content_type.to_s.downcase.include?("text/plain")
+        response_body = response.body
+      end
+
+      ChatService.record_request_duration(request_id, response.duration)
+    end
+
+    ChatService.set_result(request_id, result, total_duration)
+
+    log_message = "LLM error: #{error.error_type} - #{error.message}"
+    log_message += " | response_body: #{response_body}" if response_body
+    Sidekiq.logger.error(log_message)
   end
 end

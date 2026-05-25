@@ -27,6 +27,10 @@ map "/result" do
   run ResultAction.new
 end
 
+map "/providers" do
+  run ProvidersAction.new
+end
+
 # Sidekiq Web UI
 map "/sidekiq" do
   session_secret = begin
