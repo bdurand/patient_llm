@@ -22,8 +22,8 @@ module PatientLLM
     # Supported keyword parameters for each user callback method, along with the
     # one parameter that must always be declared.
     CALLBACK_PARAMS = {
-      on_complete: {allowed: %i[session provider llm_response callback_args http_response request_id], required: :llm_response},
-      on_tool_use: {allowed: %i[session provider llm_response callback_args http_response request_id], required: :llm_response},
+      on_complete: {allowed: %i[session provider llm_response callback_args http_response request_id]},
+      on_tool_use: {allowed: %i[session provider llm_response callback_args http_response request_id]},
       on_error: {allowed: %i[session provider callback_args error http_response request_id], required: :error}
     }.freeze
 
@@ -31,7 +31,7 @@ module PatientLLM
     #
     # Each defined callback method must use keyword parameters drawn from the
     # supported set for that method and must declare the required parameter
-    # ({llm_response} for on_complete/on_tool_use, {error} for on_error). A
+    # (`error` is required for on_error). A
     # `**kwargs` splat is permitted and receives every available value.
     #
     # @param callback_class [Class] The user callback class
@@ -55,13 +55,15 @@ module PatientLLM
           end
         end
 
-        unknown = declared - spec[:allowed]
+        allowed = Array(spec[:allowed])
+        unknown = declared - allowed
         unless unknown.empty?
-          raise ArgumentError, "#{callback_class}##{method_name} has unsupported parameter(s): #{unknown.map(&:inspect).join(", ")}. Allowed: #{spec[:allowed].map(&:inspect).join(", ")}"
+          raise ArgumentError, "#{callback_class}##{method_name} has unsupported parameter(s): #{unknown.map(&:inspect).join(", ")}. Allowed: #{allowed.map(&:inspect).join(", ")}"
         end
 
-        unless splat || declared.include?(spec[:required])
-          raise ArgumentError, "#{callback_class}##{method_name} must declare the #{spec[:required].inspect} keyword parameter"
+        required = Array(spec[:required])
+        unless splat || required.empty? || (required & declared).any?
+          raise ArgumentError, "#{callback_class}##{method_name} must declare the #{required.map(&:inspect).join(", ")} keyword parameter(s)"
         end
       end
     end

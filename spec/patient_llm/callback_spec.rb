@@ -574,29 +574,6 @@ RSpec.describe PatientLLM::Callback do
         .to raise_error(ArgumentError, /must use keyword parameters/)
     end
 
-    it "requires llm_response for on_complete" do
-      klass = Class.new do
-        def on_complete(session:)
-        end
-      end
-
-      expect { described_class.validate_callback_class!(klass) }
-        .to raise_error(ArgumentError, /must declare the :llm_response keyword/)
-    end
-
-    it "requires llm_response for on_tool_use" do
-      klass = Class.new do
-        def on_complete(llm_response:)
-        end
-
-        def on_tool_use(session:)
-        end
-      end
-
-      expect { described_class.validate_callback_class!(klass) }
-        .to raise_error(ArgumentError, /must declare the :llm_response keyword/)
-    end
-
     it "requires error for on_error" do
       klass = Class.new do
         def on_error(session:)
