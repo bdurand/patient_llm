@@ -1,8 +1,5 @@
 source "https://rubygems.org"
 
-gem "patient_http", path: "../../patient_http"
-gem "patient_http-sidekiq", path: "../../patient_http-sidekiq"
-gem "prompt_builder", path: "../../prompt_builder"
 gem "patient_llm", path: ".."
 
 gem "dotenv"
@@ -11,3 +8,7 @@ gem "rack-session"
 gem "json"
 gem "irb"
 gem "activesupport"
+
+gem "patient_http", github: "bdurand/patient_http", branch: "main"
+gem "patient_http-sidekiq", github: "bdurand/patient_http-sidekiq", branch: "main"
+gem "prompt_builder", github: "bdurand/prompt_builder", branch: "main"
