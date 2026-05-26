@@ -233,7 +233,7 @@ RSpec.describe PatientLLM do
       it "includes custom callback_args" do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", callback_args: {user_id: "abc"})
-          expect(captured.call[:callback_args][:custom]).to eq({user_id: "abc"})
+          expect(captured.call[:callback_args][:custom]).to eq({"user_id" => "abc"})
         end
       end
 
