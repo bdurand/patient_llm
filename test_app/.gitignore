@@ -1,4 +1,3 @@
 .session.key
 tmp/*
 !tmp/.keep
-Gemfile.lock
