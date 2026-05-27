@@ -1,7 +1,5 @@
 # PatientLLM
 
-:construction: NOT RELEASED :construction:
-
 [![Continuous Integration](https://github.com/bdurand/patient_llm/actions/workflows/continuous_integration.yml/badge.svg)](https://github.com/bdurand/patient_llm/actions/workflows/continuous_integration.yml)
 [![Ruby Style Guide](https://img.shields.io/badge/code_style-standard-brightgreen.svg)](https://github.com/testdouble/standard)
 [![Gem Version](https://badge.fury.io/rb/patient_llm.svg)](https://badge.fury.io/rb/patient_llm)
