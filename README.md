@@ -27,7 +27,7 @@ Without a handler, `PatientLLM.ask` raises `RuntimeError: No request handler reg
 
 ### Configuration
 
-Register your LLM providers with their API base URLs and authentication headers. Authenication headers must be registered using the PatientHttp secrets manager. This ensures that these values are never included in the serialized payloads in the job queue, and are only attached to the request at dispatch time.
+Register your LLM providers with their API base URLs and authentication headers. Authentication headers must be registered using the PatientHttp secrets manager. This ensures that these values are never included in the serialized payloads in the job queue, and are only attached to the request at dispatch time.
 
 ```ruby
 PatientLLM.configure do |config|
@@ -50,7 +50,7 @@ end
 ```
 
 > [!NOTE]
-> You can also set up encryption for you job payloads to ensure the entire serialized payloads are always encrypted in the job queue. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
+> You can also set up encryption for your job payloads to ensure the entire serialized payload is always encrypted in the job queue. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
 
 ### Creating a Callback Class
 

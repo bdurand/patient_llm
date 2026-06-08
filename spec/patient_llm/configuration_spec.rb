@@ -115,12 +115,12 @@ RSpec.describe PatientLLM do
       PatientLLM.reset!
       expect(PatientLLM.provider(:temp)).to be_nil
 
-      # Re-register the test provider used by other specs
+      # Provider re-registration for other specs is handled by the `after` hook above.
     end
   end
 
   describe "authentication headers enforcement" do
-    it "raises an error setting an unenrypted authentication header" do
+    it "raises an error setting an unencrypted authentication header" do
       ["authorization", "x-api-key", "x-goog-api-key", "api-key"].each do |header|
         expect {
           PatientLLM.configure do |config|

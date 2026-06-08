@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Requires authentication headers to be set up as secrets using `PatientHttp.secret`. This is enforced and and error will be raised if plain text values are included for any of the following headers in the provider configuration: `authorization`, `x-api-key`, `x-goog-api-key`.
+- Requires authentication headers to be set up as secrets using `PatientHttp.secret`. This is enforced and an error will be raised if plain text values are included for any of the following headers in the provider configuration: `authorization`, `x-api-key`, `x-goog-api-key`, `api-key`.
 
 ### Changed
 

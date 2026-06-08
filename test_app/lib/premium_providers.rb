@@ -60,7 +60,7 @@ module PremiumProviders
     # Returns the formatted auth header value for a provider.
     #
     # @param provider_name [String] the provider identifier
-    # @return [String] the formatted header value
+    # @return [String, nil] the formatted header value
     def auth_header_value(provider_name)
       config = PROVIDERS[provider_name]
       return nil unless config
