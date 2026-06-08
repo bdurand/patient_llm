@@ -17,7 +17,7 @@ end
 PatientLLM.configure do |config|
   config.provider :openai,
     url: "https://api.openai.com",
-    headers: {"Authorization" => "Bearer test-key"},
+    headers: {"Authorization" => PatientHttp.secret("openai.api_key")},
     serializer: :chat_completion
 end
 

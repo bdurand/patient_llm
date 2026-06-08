@@ -7,10 +7,10 @@ RSpec.describe PatientLLM::Configuration do
 
   describe "#provider" do
     it "registers a provider with url and headers" do
-      config.provider :openai, url: "https://api.openai.com", headers: {"Authorization" => "Bearer key"}
+      config.provider :openai, url: "https://api.openai.com", headers: {"Authorization" => PatientHttp.secret("bearer_token")}
       result = config.lookup(:openai)
       expect(result[:url]).to eq("https://api.openai.com")
-      expect(result[:headers]).to eq({"Authorization" => "Bearer key"})
+      expect(result[:headers]).to eq({"Authorization" => PatientHttp.secret("bearer_token")})
     end
 
     it "defaults headers to empty hash" do
@@ -99,6 +99,15 @@ RSpec.describe PatientLLM do
   end
 
   describe ".reset!" do
+    after do
+      PatientLLM.configure do |c|
+        c.provider :openai,
+          url: "https://api.openai.com",
+          headers: {"Authorization" => PatientHttp.secret("openai.api_key")},
+          serializer: :chat_completion
+      end
+    end
+
     it "clears all providers" do
       PatientLLM.configure { |c| c.provider :temp, url: "http://temp" }
       expect(PatientLLM.provider(:temp)).not_to be_nil
@@ -106,12 +115,18 @@ RSpec.describe PatientLLM do
       PatientLLM.reset!
       expect(PatientLLM.provider(:temp)).to be_nil
 
-      # Re-register the test provider used by other specs
-      PatientLLM.configure do |c|
-        c.provider :openai,
-          url: "https://api.openai.com",
-          headers: {"Authorization" => "Bearer test-key"},
-          serializer: :chat_completion
+      # Provider re-registration for other specs is handled by the `after` hook above.
+    end
+  end
+
+  describe "authentication headers enforcement" do
+    it "raises an error setting an unencrypted authentication header" do
+      ["authorization", "x-api-key", "x-goog-api-key", "api-key"].each do |header|
+        expect {
+          PatientLLM.configure do |config|
+            config.provider :bad_provider, url: "http://localhost", headers: {header => "plain_text_value"}
+          end
+        }.to raise_error(ArgumentError, /Authentication header #{header} must be set up as a secret/)
       end
     end
   end
