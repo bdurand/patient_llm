@@ -125,7 +125,7 @@ RSpec.describe PatientLLM do
       it "includes provider headers" do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
-          expect(captured.call[:request].headers["Authorization"]).to eq("Bearer test-key")
+          expect(captured.call[:request].headers["Authorization"]).to eq(PatientHttp.secret("openai.api_key"))
         end
       end
 
@@ -133,7 +133,7 @@ RSpec.describe PatientLLM do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", headers: {"X-Custom" => "value"})
           headers = captured.call[:request].headers
-          expect(headers["Authorization"]).to eq("Bearer test-key")
+          expect(headers["Authorization"]).to eq(PatientHttp.secret("openai.api_key"))
           expect(headers["X-Custom"]).to eq("value")
         end
       end

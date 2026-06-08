@@ -30,10 +30,9 @@ PatientLLM.configure do |config|
 
   # Register premium providers whose API keys are present
   PremiumProviders.available.each do |name, provider_config|
-    api_key = ENV[provider_config[:env_key]]
     config.provider name.to_sym,
       url: PremiumProviders.base_url(name),
-      headers: PremiumProviders.auth_headers(name, api_key),
+      headers: PremiumProviders.auth_header(name),
       serializer: provider_config[:serializer]
   end
 end
@@ -42,6 +41,7 @@ PatientHttp::Sidekiq.configure do |config|
   config.request_timeout = 120
   config.encryption_key = "supersecretkeyfortesting"
   config.sidekiq_options = {retry_count: 1}
+
   config.on_retries_exhausted do |error|
     result = {
       success: false,
@@ -56,6 +56,10 @@ PatientHttp::Sidekiq.configure do |config|
     start_time = error.callback_args[:start_time]
     total_duration = Time.now.to_f - start_time if start_time
     ChatService.set_result(request_id, result, total_duration)
+  end
+
+  PremiumProviders.available.each_key do |name|
+    config.register_secret("#{name}.api_key") { PremiumProviders.auth_header_value(name) }
   end
 end
 

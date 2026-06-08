@@ -27,25 +27,30 @@ Without a handler, `PatientLLM.ask` raises `RuntimeError: No request handler reg
 
 ### Configuration
 
-Register your LLM providers with their API base URLs and authentication headers:
+Register your LLM providers with their API base URLs and authentication headers. Authenication headers must be registered using the PatientHttp secrets manager. This ensures that these values are never included in the serialized payloads in the job queue, and are only attached to the request at dispatch time.
 
 ```ruby
 PatientLLM.configure do |config|
   config.provider :openai,
     url: "https://api.openai.com",
-    headers: {"Authorization" => "Bearer #{ENV["OPENAI_API_KEY"]}"}
+    headers: {"authorization" => PatientHttp.secret("openai.bearer_token")}
 
   config.provider :anthropic,
     url: "https://api.anthropic.com",
-    headers: {"x-api-key" => ENV["ANTHROPIC_API_KEY"]},
+    headers: {"x-api-key" => PatientHttp.secret("anthropic.api_key")},
     serializer: :messages
+end
+
+# Register the API keys as secrets with the PatientHttp secrets manager. This example
+# is for the Sidekiq integration, but the pattern is the same for SolidQueue.
+PatientHttp::Sidekiq.configure do |config|
+  config.register_secret("openai.bearer_token") { "Bearer #{ENV.fetch("OPENAI_API_KEY")}" }
+  config.register_secret("anthropic.api_key") { ENV.fetch("ANTHROPIC_API_KEY") }
 end
 ```
 
 > [!NOTE]
-> Authentication headers configured on the provider are re-attached to every request at dispatch time and are persisted in the asynchronous job payload.
->
-> You should set up encryption for you job payloads to prevent leaking credentials. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
+> You can also set up encryption for you job payloads to ensure the entire serialized payloads are always encrypted in the job queue. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
 
 ### Creating a Callback Class
 

@@ -1,6 +1,7 @@
 source "https://rubygems.org"
 
 gem "patient_llm", path: ".."
+gem "patient_http-sidekiq"
 
 gem "dotenv"
 gem "protocol-rack"

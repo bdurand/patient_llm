@@ -43,16 +43,38 @@ module PremiumProviders
     # Returns the auth headers for a given provider.
     #
     # @param provider_name [String] the provider identifier
-    # @param api_key [String] the API key
-    # @return [Hash] headers hash
-    def auth_headers(provider_name, api_key)
+    # @return [Hash] headers hash with the appropriate auth key and secret
+    def auth_header(provider_name)
+      secret_name = "#{provider_name}.api_key"
+      secret_value = PatientHttp.secret(secret_name)
       case provider_name
       when "anthropic"
-        {"x-api-key" => api_key}
+        {"x-api-key" => secret_value}
       when "gemini"
-        {"x-goog-api-key" => api_key}
+        {"x-goog-api-key" => secret_value}
       else
-        {"Authorization" => "Bearer #{api_key}"}
+        {"authorization" => secret_value}
+      end
+    end
+
+    # Returns the formatted auth header value for a provider.
+    #
+    # @param provider_name [String] the provider identifier
+    # @return [String] the formatted header value
+    def auth_header_value(provider_name)
+      config = PROVIDERS[provider_name]
+      return nil unless config
+
+      value = ENV[config[:env_key]]
+      return nil if value.nil? || value.empty?
+
+      case provider_name
+      when "anthropic"
+        value
+      when "gemini"
+        value
+      else
+        "Bearer #{value}"
       end
     end
 
