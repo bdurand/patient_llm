@@ -1,5 +1,5 @@
 PATH
-  remote: ..
+  remote: .
   specs:
     patient_llm (0.3.0)
       patient_http (~> 1.1)
@@ -8,19 +8,7 @@ PATH
 GEM
   remote: https://rubygems.org/
   specs:
-    activesupport (8.1.3)
-      base64
-      bigdecimal
-      concurrent-ruby (~> 1.0, >= 1.3.1)
-      connection_pool (>= 2.2.5)
-      drb
-      i18n (>= 1.6, < 2)
-      json
-      logger (>= 1.4.2)
-      minitest (>= 5.1)
-      securerandom (>= 0.3)
-      tzinfo (~> 2.0, >= 2.0.5)
-      uri (>= 0.13.1)
+    ast (2.4.3)
     async (2.39.0)
       console (~> 1.29)
       fiber-annotation
@@ -40,24 +28,18 @@ GEM
       traces (~> 0.10)
     async-pool (0.11.2)
       async (>= 2.0)
-    base64 (0.3.0)
-    bigdecimal (4.1.2)
     concurrent-ruby (1.3.6)
-    connection_pool (3.0.2)
     console (1.36.0)
       fiber-annotation
       fiber-local (~> 1.1)
       json
     date (3.5.1)
-    dotenv (3.2.0)
-    drb (2.2.3)
+    diff-lcs (1.6.2)
     erb (6.0.4)
     fiber-annotation (0.2.0)
     fiber-local (1.1.0)
       fiber-storage
     fiber-storage (1.0.1)
-    i18n (1.14.8)
-      concurrent-ruby (~> 1.0)
     io-console (0.8.2)
     io-endpoint (0.17.2)
     io-event (1.16.1)
@@ -68,24 +50,24 @@ GEM
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
     json (2.19.8)
+    language_server-protocol (3.17.0.5)
+    lint_roller (1.1.0)
     logger (1.7.0)
     metrics (0.15.0)
-    minitest (6.0.6)
-      drb (~> 2.0)
-      prism (~> 1.5)
-    patient_http (1.1.0)
+    parallel (2.1.0)
+    parser (3.3.11.1)
+      ast (~> 2.4.1)
+      racc
+    patient_http (1.1.1)
       async (~> 2.0)
       async-http (~> 0.60)
       concurrent-ruby (~> 1.2)
       logger
-    patient_http-sidekiq (1.0.1)
-      patient_http
-      sidekiq (>= 7.0)
     pp (0.6.3)
       prettyprint
     prettyprint (0.2.0)
     prism (1.9.0)
-    prompt_builder (0.1.0)
+    prompt_builder (0.1.1)
     protocol-hpack (1.5.1)
     protocol-http (0.62.2)
     protocol-http1 (0.39.0)
@@ -93,107 +75,146 @@ GEM
     protocol-http2 (0.26.0)
       protocol-hpack (~> 1.4)
       protocol-http (~> 0.62)
-    protocol-rack (0.22.1)
-      io-stream (>= 0.10)
-      protocol-http (~> 0.58)
-      rack (>= 1.0)
     protocol-url (0.4.0)
     psych (5.4.0)
       date
       stringio
-    rack (3.2.6)
-    rack-session (2.1.2)
-      base64 (>= 0.1.0)
-      rack (>= 3.0.0)
+    racc (1.8.1)
+    rainbow (3.1.1)
+    rake (13.4.2)
     rdoc (7.2.0)
       erb
       psych (>= 4.0.0)
       tsort
-    redis-client (0.29.0)
-      connection_pool
+    regexp_parser (2.12.0)
     reline (0.6.3)
       io-console (~> 0.5)
-    securerandom (0.4.1)
-    sidekiq (8.1.6)
-      connection_pool (>= 3.0.0)
-      json (>= 2.16.0)
-      logger (>= 1.7.0)
-      rack (>= 3.2.0)
-      redis-client (>= 0.29.0)
+    rspec (3.13.2)
+      rspec-core (~> 3.13.0)
+      rspec-expectations (~> 3.13.0)
+      rspec-mocks (~> 3.13.0)
+    rspec-core (3.13.6)
+      rspec-support (~> 3.13.0)
+    rspec-expectations (3.13.5)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-mocks (3.13.8)
+      diff-lcs (>= 1.2.0, < 2.0)
+      rspec-support (~> 3.13.0)
+    rspec-support (3.13.7)
+    rubocop (1.87.0)
+      json (~> 2.3)
+      language_server-protocol (~> 3.17.0.2)
+      lint_roller (~> 1.1.0)
+      parallel (>= 1.10)
+      parser (>= 3.3.0.2)
+      rainbow (>= 2.2.2, < 4.0)
+      regexp_parser (>= 2.9.3, < 3.0)
+      rubocop-ast (>= 1.49.0, < 2.0)
+      ruby-progressbar (~> 1.7)
+      unicode-display_width (>= 2.4.0, < 4.0)
+    rubocop-ast (1.49.1)
+      parser (>= 3.3.7.2)
+      prism (~> 1.7)
+    rubocop-performance (1.26.1)
+      lint_roller (~> 1.1)
+      rubocop (>= 1.75.0, < 2.0)
+      rubocop-ast (>= 1.47.1, < 2.0)
+    ruby-progressbar (1.13.0)
+    standard (1.55.0)
+      language_server-protocol (~> 3.17.0.2)
+      lint_roller (~> 1.0)
+      rubocop (~> 1.87.0)
+      standard-custom (~> 1.0.0)
+      standard-performance (~> 1.8)
+    standard-custom (1.0.2)
+      lint_roller (~> 1.0)
+      rubocop (~> 1.50)
+    standard-performance (1.9.0)
+      lint_roller (~> 1.1)
+      rubocop-performance (~> 1.26.0)
     stringio (3.2.0)
     traces (0.18.2)
     tsort (0.2.0)
-    tzinfo (2.0.6)
-      concurrent-ruby (~> 1.0)
-    uri (1.1.1)
+    unicode-display_width (3.2.0)
+      unicode-emoji (~> 4.1)
+    unicode-emoji (4.2.0)
+    yard (0.9.44)
 
 PLATFORMS
   arm64-darwin-25
   ruby
 
 DEPENDENCIES
-  activesupport
-  dotenv
+  bundler
   irb
-  json
-  patient_http-sidekiq
   patient_llm!
-  protocol-rack
-  rack-session
+  rake
+  rspec (~> 3.12, ~> 3.0)
+  standard (~> 1.0)
+  yard
 
 CHECKSUMS
-  activesupport (8.1.3)
+  ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   async (2.39.0) sha256=df18730073f2bbb45788077dfa20cb365ecc1b9453969f44de6796b5191a00aa
   async-http (0.95.1) sha256=0c3dd458c204c06d5c4b20b01bbec4794a1203db627fb2ce536e1799ec14786c
   async-pool (0.11.2) sha256=0a43a17b02b04d9c451b7d12fafa9a50e55dc6dd00d4369aca00433f16a7e3ed
-  base64 (0.3.0)
-  bigdecimal (4.1.2)
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
-  connection_pool (3.0.2)
   console (1.36.0) sha256=45599ea906cf80a73d8941f03abf873fe66a6a954e0bac5bc1c01e2cdc406f07
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
-  dotenv (3.2.0)
-  drb (2.2.3)
+  diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
   fiber-annotation (0.2.0) sha256=7abfadf1d119f508867d4103bf231c0354d019cc39a5738945dec2edadaf6c03
   fiber-local (1.1.0) sha256=c885f94f210fb9b05737de65d511136ea602e00c5105953748aa0f8793489f06
   fiber-storage (1.0.1) sha256=f48e5b6d8b0be96dac486332b55cee82240057065dc761c1ea692b2e719240e1
-  i18n (1.14.8)
   io-console (0.8.2) sha256=d6e3ae7a7cc7574f4b8893b4fca2162e57a825b223a177b7afa236c5ef9814cc
   io-endpoint (0.17.2) sha256=3feaf766c116b35839c11fac68b6aaadc47887bb488902a57bf8e1d288fb3338
   io-event (1.16.1) sha256=641686f1e919a4890f788b86393026f8ef1394ee4af4d2ab9c24c81e237736ed
   io-stream (0.13.0) sha256=ce24bccb302bdf3ecedef05e8669a687b461621a498d83622fdcab549c9c1636
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
   json (2.19.8) sha256=6354310fd76ef69b87d5bd1f38b40d730613baf90b6803d2d0a48f618d32dfaa
+  language_server-protocol (3.17.0.5) sha256=fd1e39a51a28bf3eec959379985a72e296e9f9acfce46f6a79d31ca8760803cc
+  lint_roller (1.1.0) sha256=2c0c845b632a7d172cb849cc90c1bce937a28c5c8ccccb50dfd46a485003cc87
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
-  minitest (6.0.6)
-  patient_http (1.1.0) sha256=8df9429ceb85cab37642b7ac11f6e02bd17ac119c14e13ed0d95ba11f1f6f820
-  patient_http-sidekiq (1.0.1)
+  parallel (2.1.0) sha256=b35258865c2e31134c5ecb708beaaf6772adf9d5efae28e93e99260877b09356
+  parser (3.3.11.1) sha256=d17ace7aabe3e72c3cc94043714be27cc6f852f104d81aa284c2281aecc65d54
+  patient_http (1.1.1) sha256=f2778cd4c98a7fba992ab7cac60d15317723605f5e9d02bc6efd2dd71535f340
   patient_llm (0.3.0)
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
-  prompt_builder (0.1.0) sha256=35e25e3941205a80b038f4eba9bfa98685948e1d14fa2645ea798404b85e7ba3
+  prompt_builder (0.1.1) sha256=98f5b0ef79e7b0c5f11a969dc205eee939ac8ebd3a82014fb6a25443fa04c14e
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.62.2) sha256=e1c1f2f56029c1af8c4e2b8a67d0d096c76620f3afd8d99d1dcd2f6b8ffa773b
   protocol-http1 (0.39.0) sha256=e49b3f4cda6f5d94c76a323d2b7f6977cba3ebd082d2da437039594da77ad8eb
   protocol-http2 (0.26.0) sha256=bac89cd78082b241ccd0cf7246f5160e4bb0c9c975fb4bf7deef5f88cc317486
-  protocol-rack (0.22.1)
   protocol-url (0.4.0) sha256=64d4c03b6b51ad815ac6fdaf77a1d91e5baf9220d26becb846c5459dacdea9e1
   psych (5.4.0) sha256=14f72d69a611af663d7d70e4a7b67d9eb1f3ae9f8d916b478961d5a0075ba5b7
-  rack (3.2.6)
-  rack-session (2.1.2)
+  racc (1.8.1) sha256=4a7f6929691dbec8b5209a0b373bc2614882b55fc5d2e447a21aaa691303d62f
+  rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
+  rake (13.4.2) sha256=cb825b2bd5f1f8e91ca37bddb4b9aaf345551b4731da62949be002fa89283701
   rdoc (7.2.0) sha256=8650f76cd4009c3b54955eb5d7e3a075c60a57276766ebf36f9085e8c9f23192
-  redis-client (0.29.0)
+  regexp_parser (2.12.0) sha256=35a916a1d63190ab5c9009457136ae5f3c0c7512d60291d0d1378ba18ce08ebb
   reline (0.6.3) sha256=1198b04973565b36ec0f11542ab3f5cfeeec34823f4e54cebde90968092b1835
-  securerandom (0.4.1)
-  sidekiq (8.1.6)
+  rspec (3.13.2) sha256=206284a08ad798e61f86d7ca3e376718d52c0bc944626b2349266f239f820587
+  rspec-core (3.13.6) sha256=a8823c6411667b60a8bca135364351dda34cd55e44ff94c4be4633b37d828b2d
+  rspec-expectations (3.13.5) sha256=33a4d3a1d95060aea4c94e9f237030a8f9eae5615e9bd85718fe3a09e4b58836
+  rspec-mocks (3.13.8) sha256=086ad3d3d17533f4237643de0b5c42f04b66348c28bf6b9c2d3f4a3b01af1d47
+  rspec-support (3.13.7) sha256=0640e5570872aafefd79867901deeeeb40b0c9875a36b983d85f54fb7381c47c
+  rubocop (1.87.0) sha256=b9d9ddf55116a513f8ef2c7ae660662d8b49301f118d3f0df61865b33a5c188d
+  rubocop-ast (1.49.1) sha256=4412f3ee70f6fe4546cc489548e0f6fcf76cafcfa80fa03af67098ffed755035
+  rubocop-performance (1.26.1) sha256=cd19b936ff196df85829d264b522fd4f98b6c89ad271fa52744a8c11b8f71834
+  ruby-progressbar (1.13.0) sha256=80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33
+  standard (1.55.0) sha256=8a8f2c3e681a4db3aafde1b301561b0f3d7c5f06c160167cb744a4d7baf0426e
+  standard-custom (1.0.2) sha256=424adc84179a074f1a2a309bb9cf7cd6bfdb2b6541f20c6bf9436c0ba22a652b
+  standard-performance (1.9.0) sha256=49483d31be448292951d80e5e67cdcb576c2502103c7b40aec6f1b6e9c88e3f2
   stringio (3.2.0) sha256=c37cb2e58b4ffbd33fe5cd948c05934af997b36e0b6ca6fdf43afa234cf222e1
   traces (0.18.2) sha256=80f1649cb4daace1d7174b81f3b3b7427af0b93047759ba349960cb8f315e214
   tsort (0.2.0) sha256=9650a793f6859a43b6641671278f79cfead60ac714148aabe4e3f0060480089f
-  tzinfo (2.0.6)
-  uri (1.1.1)
+  unicode-display_width (3.2.0) sha256=0cdd96b5681a5949cdbc2c55e7b420facae74c4aaf9a9815eee1087cb1853c42
+  unicode-emoji (4.2.0) sha256=519e69150f75652e40bf736106cfbc8f0f73aa3fb6a65afe62fefa7f80b0f80f
+  yard (0.9.44) sha256=eb087e9b631ccd887b049f303d489963945452d5e2a7eb49a5a74a7cf6887f28
 
 BUNDLED WITH
   4.0.3
