@@ -185,9 +185,9 @@ session.max_output_tokens = 1000
 PatientLLM.ask(session,
   provider: :openai,
   callback: LLMCallback,
-  url: "http://localhost:1234",           # Override the provider's base URL
+  url: "http://localhost:1234",            # Override the provider's base URL
   serializer: :messages,                   # Override the API format
-  completion_path: "/chat/completions",    # Override the endpoint path
+  path: "/chat/completions",               # Override the endpoint path
   headers: {"X-Custom" => "value"},        # Additional HTTP headers
   params: {max_completion_tokens: 1000}    # Additional request parameters
 )
@@ -195,24 +195,24 @@ PatientLLM.ask(session,
 
 ### URL composition
 
-The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `completion_path`. When you don't set `completion_path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time, which is how the Gemini default targets Google's `/v1beta/models/{model}:generateContent` endpoint. Trailing slashes on the base and leading slashes on the path are normalized, so:
+The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `path`. When you don't set `path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time, which is how the Gemini default targets Google's `/v1beta/models/{model}:generateContent` endpoint. Trailing slashes on the base and leading slashes on the path are normalized, so:
 
 ```
-url = "https://api.openai.com"            completion_path = "/v1/chat/completions"
+url = "https://api.openai.com"            path = "/v1/chat/completions"
 -> https://api.openai.com/v1/chat/completions
 
-url = "http://localhost:1234"             completion_path = "/v1/chat/completions"
+url = "http://localhost:1234"             path = "/v1/chat/completions"
 -> http://localhost:1234/v1/chat/completions
 ```
 
-If your base URL already includes a `/v1` prefix, override the completion path to avoid duplication:
+If your base URL already includes a `/v1` prefix, override the path to avoid duplication:
 
 ```ruby
 PatientLLM.ask(session,
   provider: :openai,
   callback: LLMCallback,
   url: "https://my-gateway.internal/openai/v1",
-  completion_path: "/chat/completions"
+  path: "/chat/completions"
 )
 ```
 

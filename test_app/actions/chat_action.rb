@@ -17,7 +17,7 @@ class ChatAction
     api_url = params["api_url"]
     provider_name = params["provider"]
     url_override = nil
-    completion_path_override = nil
+    path_override = nil
     serializer_override = nil
     headers_override = nil
     provider = :test
@@ -25,7 +25,7 @@ class ChatAction
     if provider_name && provider_name != "custom" && PremiumProviders::PROVIDERS.key?(provider_name)
       provider = provider_name.to_sym
       model = params["model"].to_s
-      completion_path_override = PremiumProviders.completion_path(provider_name, model)
+      path_override = PremiumProviders.path(provider_name, model)
       effective_serializer = PremiumProviders::PROVIDERS[provider_name][:serializer]
     else
       if api_url
@@ -44,8 +44,8 @@ class ChatAction
       end
 
       if params["api_path"] && !params["api_path"].empty?
-        completion_path_override = params["api_path"]
-        serializer_override = PatientLLM::SERIALIZER_PATHS.key(completion_path_override)
+        path_override = params["api_path"]
+        serializer_override = PatientLLM::SERIALIZER_PATHS.key(path_override.sub(%r{\A/}, ""))
       end
 
       effective_serializer = serializer_override
@@ -102,6 +102,10 @@ class ChatAction
 
     if params["max_tokens"] && params["max_tokens"].to_i > 0
       session.max_output_tokens = params["max_tokens"].to_i
+    end
+
+    if params["max_output_tokens"] && params["max_output_tokens"].to_i > 0
+      session.max_output_tokens = params["max_output_tokens"].to_i
     end
 
     # Anthropic requires max_tokens > budget_tokens when thinking is enabled
@@ -203,7 +207,7 @@ class ChatAction
       callback_args: {request_id: request_id, start_time: Time.now.to_f},
       url: url_override,
       serializer: serializer_override,
-      completion_path: completion_path_override,
+      path: path_override,
       headers: headers_override
     )
 

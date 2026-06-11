@@ -102,9 +102,9 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "uses the provider's completion_path override" do
+      it "uses the provider's path override" do
         PatientLLM.configure do |c|
-          c.provider :custom_path_test, url: "https://custom.example.com", completion_path: "/api/chat"
+          c.provider :custom_path_test, url: "https://custom.example.com", path: "/api/chat"
         end
 
         with_fake_handler do |captured|
@@ -113,9 +113,18 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "uses the completion_path argument override" do
+      it "uses the path argument override" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", path: "/custom/endpoint")
+          expect(captured.call[:request].url.to_s).to end_with("/custom/endpoint")
+        end
+      end
+
+      it "accepts the deprecated completion_path argument as an alias for path" do
+        with_fake_handler do |captured|
+          expect do
+            PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
+          end.to output(/completion_path.*deprecated/).to_stderr
           expect(captured.call[:request].url.to_s).to end_with("/custom/endpoint")
         end
       end
@@ -276,11 +285,11 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "records completion_path override in request_options" do
+      it "records path override in request_options" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom")
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", path: "/custom")
           options = captured.call[:callback_args][:request_options]
-          expect(options["completion_path"]).to eq("/custom")
+          expect(options["path"]).to eq("/custom")
         end
       end
 
@@ -359,14 +368,14 @@ RSpec.describe PatientLLM do
     describe "URL joining" do
       it "joins base URL and path without double slashes" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com/", completion_path: "/v1/chat")
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com/", path: "/v1/chat")
           expect(captured.call[:request].url.to_s).to eq("https://example.com/v1/chat")
         end
       end
 
       it "handles base URL without trailing slash" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com", completion_path: "v1/chat")
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com", path: "v1/chat")
           expect(captured.call[:request].url.to_s).to eq("https://example.com/v1/chat")
         end
       end
