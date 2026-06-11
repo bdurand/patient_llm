@@ -380,6 +380,20 @@ RSpec.describe PatientLLM do
         end
       end
 
+      it "handles relative paths correctly" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com/api", path: "v1/chat")
+          expect(captured.call[:request].url.to_s).to eq("https://example.com/api/v1/chat")
+        end
+      end
+
+      it "handles absolute paths correctly" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", url: "https://example.com/api", path: "/v1/chat")
+          expect(captured.call[:request].url.to_s).to eq("https://example.com/v1/chat")
+        end
+      end
+
       it "embeds the session model in the default Gemini path" do
         gemini_session = PromptBuilder::Session.new(model: "gemini-2.5-pro").tap { |s| s.user("Hello") }
         with_fake_handler do |captured|

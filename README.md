@@ -212,7 +212,7 @@ PatientLLM.ask(session,
   provider: :openai,
   callback: LLMCallback,
   url: "https://my-gateway.internal/openai/v1",
-  path: "/chat/completions"
+  path: "chat/completions"
 )
 ```
 
