@@ -78,12 +78,12 @@ module PremiumProviders
       end
     end
 
-    # Returns the completion path for a provider, substituting the model name where needed.
+    # Returns the endpoint path for a provider, substituting the model name where needed.
     #
     # @param provider_name [String] the provider identifier
     # @param model [String] the model name
-    # @return [String, nil] the completion path or nil for default
-    def completion_path(provider_name, model)
+    # @return [String, nil] the endpoint path or nil for default
+    def path(provider_name, model)
       case provider_name
       when "gemini"
         "/v1beta/models/#{model}:generateContent"

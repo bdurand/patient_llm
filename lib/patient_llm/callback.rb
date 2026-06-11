@@ -213,7 +213,7 @@ module PatientLLM
       # Restore per-request overrides
       ask_kwargs[:url] = request_options["url"] if request_options["url"]
       ask_kwargs[:serializer] = request_options["serializer"].to_sym if request_options["serializer"]
-      ask_kwargs[:completion_path] = request_options["completion_path"] if request_options["completion_path"]
+      ask_kwargs[:path] = request_options["path"] if request_options["path"]
       ask_kwargs[:headers] = request_options["headers"] if request_options["headers"]
       ask_kwargs[:params] = request_options["params"] if request_options["params"]
 

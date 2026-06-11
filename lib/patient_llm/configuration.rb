@@ -26,10 +26,16 @@ module PatientLLM
     # @param url [String] Base URL for the provider API
     # @param headers [Hash] Default headers for requests
     # @param serializer [Symbol] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
-    # @param completion_path [String, nil] Override the default endpoint path
+    # @param path [String, nil] Override the default endpoint path
+    # @param completion_path [String, nil] Deprecated alias for +path+
     # @param params [Hash] Additional parameters to merge into every request payload
     # @return [void]
-    def provider(name, url:, headers: {}, serializer: :chat_completion, completion_path: nil, params: {})
+    def provider(name, url:, headers: {}, serializer: :chat_completion, path: nil, completion_path: nil, params: {})
+      if completion_path
+        warn "PatientLLM::Configuration#provider: the `completion_path:` argument is deprecated; use `path:` instead", uplevel: 1
+        path ||= completion_path
+      end
+
       sym = serializer.to_sym
       unless PatientLLM::VALID_SERIALIZERS.include?(sym)
         raise ArgumentError, "Unknown serializer: #{sym.inspect}. Valid options: #{PatientLLM::VALID_SERIALIZERS.map(&:inspect).join(", ")}"
@@ -41,7 +47,7 @@ module PatientLLM
         url: url,
         headers: headers,
         serializer: sym,
-        completion_path: completion_path,
+        path: path,
         params: params
       }
     end

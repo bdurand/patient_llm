@@ -31,16 +31,24 @@ RSpec.describe PatientLLM::Configuration do
       expect(result[:serializer]).to eq(:messages)
     end
 
-    it "accepts a completion_path override" do
-      config.provider :custom, url: "http://localhost:1234", completion_path: "/api/chat"
+    it "accepts a path override" do
+      config.provider :custom, url: "http://localhost:1234", path: "/api/chat"
       result = config.lookup(:custom)
-      expect(result[:completion_path]).to eq("/api/chat")
+      expect(result[:path]).to eq("/api/chat")
     end
 
-    it "defaults completion_path to nil" do
+    it "defaults path to nil" do
       config.provider :local, url: "http://localhost:1234"
       result = config.lookup(:local)
-      expect(result[:completion_path]).to be_nil
+      expect(result[:path]).to be_nil
+    end
+
+    it "accepts the deprecated completion_path as an alias for path" do
+      expect do
+        config.provider :custom, url: "http://localhost:1234", completion_path: "/api/chat"
+      end.to output(/completion_path.*deprecated/).to_stderr
+      result = config.lookup(:custom)
+      expect(result[:path]).to eq("/api/chat")
     end
 
     it "accepts additional params" do

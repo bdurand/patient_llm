@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.3.0
+
+### Changed
+
+- Renamed the `completion_path` argument to `path` on both `PatientLLM.ask` and provider configuration. The `completion_path` name is still accepted as a deprecated alias and now emits a deprecation warning.
+- The path is now joined with the base URL using `URI.join` to ensure proper handling of relative paths in the `path` argument. If the path starts with a slash, it will be treated as an absolute path and will replace the base URL's path. If it does not start with a slash, it will be treated as a relative path and will be appended to the base URL's path.
+
 ## 0.2.0
 
 ### Added

@@ -433,6 +433,9 @@ function getSettings() {
   const serviceTier = document.getElementById('service-tier').value;
   if (serviceTier) settings.service_tier = serviceTier;
 
+  const maxOutputTokens = parseInt(document.getElementById('max-output-tokens').value) || 0;
+  if (maxOutputTokens > 0) settings.max_output_tokens = maxOutputTokens;
+
   const metadata = getMetadata();
   if (Object.keys(metadata).length > 0) settings.metadata = metadata;
 

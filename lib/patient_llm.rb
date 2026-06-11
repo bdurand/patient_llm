@@ -2,6 +2,7 @@
 
 require "patient_http"
 require "prompt_builder"
+require "uri"
 
 module PatientLLM
   VERSION = File.read(File.join(__dir__, "../VERSION")).strip
@@ -16,11 +17,11 @@ module PatientLLM
   # dispatch time, matching Google's `/v1beta/models/{model}:generateContent`
   # endpoint.
   SERIALIZER_PATHS = {
-    chat_completion: "/v1/chat/completions",
-    open_responses: "/v1/responses",
-    messages: "/v1/messages",
-    converse: "/converse",
-    gemini: "/v1beta/models/{model}:generateContent"
+    chat_completion: "v1/chat/completions",
+    open_responses: "v1/responses",
+    messages: "v1/messages",
+    converse: "converse",
+    gemini: "v1beta/models/{model}:generateContent"
   }.freeze
 
   # Required version header for the Anthropic Messages API.
@@ -62,11 +63,17 @@ module PatientLLM
     # @param callback_args [Hash] Custom arguments passed through to the callback
     # @param url [String, nil] Override the provider's base URL for this request
     # @param serializer [Symbol, nil] Override the provider's serializer for this request
-    # @param completion_path [String, nil] Override the endpoint path for this request
+    # @param path [String, nil] Override the endpoint path for this request
+    # @param completion_path [String, nil] Deprecated alias for +path+
     # @param headers [Hash, nil] Additional headers merged on top of provider headers
     # @param params [Hash, nil] Additional params merged into the request payload
     # @return [Object] Handler-specific identifier for the enqueued request
-    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, completion_path: nil, headers: nil, params: nil, tool_iteration: 0, original_request_id: nil) # :nodoc: tool_iteration and original_request_id are internal
+    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, completion_path: nil, headers: nil, params: nil, tool_iteration: 0, original_request_id: nil) # :nodoc: tool_iteration and original_request_id are internal
+      if completion_path
+        warn "PatientLLM.ask: the `completion_path:` argument is deprecated; use `path:` instead", uplevel: 1
+        path ||= completion_path
+      end
+
       provider_config = self.provider(provider) || {}
       provider_name = provider.to_s
 
@@ -79,9 +86,9 @@ module PatientLLM
 
       resolved_serializer = (serializer || provider_config[:serializer] || :chat_completion).to_sym
       validate_serializer!(resolved_serializer)
-      resolved_completion_path = completion_path || provider_config[:completion_path] || SERIALIZER_PATHS[resolved_serializer] || "/v1/chat/completions"
-      if resolved_completion_path.include?("{model}")
-        resolved_completion_path = resolved_completion_path.gsub("{model}", session.model.to_s)
+      resolved_path = path || provider_config[:path] || SERIALIZER_PATHS[resolved_serializer] || "/v1/chat/completions"
+      if resolved_path.include?("{model}")
+        resolved_path = resolved_path.gsub("{model}", session.model.to_s)
       end
       resolved_headers = (provider_config[:headers] || {}).merge(headers || {})
       if resolved_serializer == :messages && !resolved_headers.key?("anthropic-version")
@@ -92,12 +99,12 @@ module PatientLLM
       payload = session.request_payload(resolved_serializer)
       payload = deep_merge(payload, deep_stringify_keys(resolved_params)) unless resolved_params.empty?
 
-      request_url = join_url(resolved_url, resolved_completion_path)
+      request_url = join_url(resolved_url, resolved_path)
 
       request_options = {}
       request_options["url"] = url if url
       request_options["serializer"] = serializer.to_s if serializer
-      request_options["completion_path"] = completion_path if completion_path
+      request_options["path"] = path if path
       request_options["headers"] = headers if headers && !headers.empty?
       request_options["params"] = params if params && !params.empty?
 
@@ -128,7 +135,9 @@ module PatientLLM
     end
 
     def join_url(base, path)
-      "#{base.sub(%r{/\z}, "")}/#{path.to_s.sub(%r{\A/}, "")}"
+      base_uri = URI.parse(base)
+      base_uri.path = "#{base_uri.path}/" unless base_uri.path&.end_with?("/")
+      URI.join(base_uri, path).to_s
     end
 
     def deep_merge(hash1, hash2)
