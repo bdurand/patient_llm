@@ -216,6 +216,7 @@ module PatientLLM
       ask_kwargs[:path] = request_options["path"] if request_options["path"]
       ask_kwargs[:headers] = request_options["headers"] if request_options["headers"]
       ask_kwargs[:params] = request_options["params"] if request_options["params"]
+      ask_kwargs[:preprocessors] = request_options["preprocessors"] if request_options["preprocessors"]
 
       PatientLLM.ask(session, **ask_kwargs)
     end

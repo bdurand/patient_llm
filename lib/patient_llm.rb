@@ -67,8 +67,11 @@ module PatientLLM
     # @param completion_path [String, nil] Deprecated alias for +path+
     # @param headers [Hash, nil] Additional headers merged on top of provider headers
     # @param params [Hash, nil] Additional params merged into the request payload
+    # @param preprocessors [String, Symbol, Array<String, Symbol>, nil] Names of request
+    #   preprocessors to apply to this request. Replaces the provider's configured
+    #   preprocessors; pass an empty array to clear them for this request.
     # @return [Object] Handler-specific identifier for the enqueued request
-    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, completion_path: nil, headers: nil, params: nil, tool_iteration: 0, original_request_id: nil) # :nodoc: tool_iteration and original_request_id are internal
+    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, completion_path: nil, headers: nil, params: nil, preprocessors: nil, tool_iteration: 0, original_request_id: nil) # :nodoc: tool_iteration and original_request_id are internal
       if completion_path
         warn "PatientLLM.ask: the `completion_path:` argument is deprecated; use `path:` instead", uplevel: 1
         path ||= completion_path
@@ -95,6 +98,7 @@ module PatientLLM
         resolved_headers = {"anthropic-version" => ANTHROPIC_VERSION}.merge(resolved_headers)
       end
       resolved_params = (provider_config[:params] || {}).merge(params || {})
+      resolved_preprocessors = preprocessors || provider_config[:preprocessors]
 
       payload = session.request_payload(resolved_serializer)
       payload = deep_merge(payload, deep_stringify_keys(resolved_params)) unless resolved_params.empty?
@@ -107,11 +111,13 @@ module PatientLLM
       request_options["path"] = path if path
       request_options["headers"] = headers if headers && !headers.empty?
       request_options["params"] = params if params && !params.empty?
+      request_options["preprocessors"] = preprocessors if preprocessors
 
       PatientHttp.post(
         request_url,
         json: payload,
         headers: resolved_headers,
+        preprocessors: resolved_preprocessors,
         raise_error_responses: true,
         callback: PatientLLM::Callback,
         callback_args: {

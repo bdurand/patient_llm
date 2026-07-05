@@ -52,6 +52,38 @@ end
 > [!NOTE]
 > You can also set up encryption for your job payloads to ensure the entire serialized payload is always encrypted in the job queue. See the documentation for [patient_http-sidekiq](https://github.com/bdurand/patient_http-sidekiq#sensitive-data-handling) or [patient_http-solid_queue](https://github.com/bdurand/patient_http-solid_queue#sensitive-data-handling) for details.
 
+### Request signing (preprocessors)
+
+Some providers require request signing rather than a static authentication header — for example, AWS Bedrock with SigV4, where a signature is computed over the final outgoing request. For these, register a [request preprocessor](https://github.com/bdurand/patient_http#request-preprocessors) on the PatientHttp configuration and reference it by name from the provider. Like secrets, only the preprocessor name is serialized into the job queue; the signing logic and credentials stay on the processor side.
+
+```ruby
+PatientLLM.configure do |config|
+  config.provider :bedrock,
+    url: "https://bedrock-runtime.us-east-1.amazonaws.com",
+    serializer: :converse,
+    preprocessors: :aws_sigv4
+end
+
+PatientHttp::Sidekiq.configure do |config|
+  config.register_preprocessor(:aws_sigv4) do |request|
+    signer = Aws::Sigv4::Signer.new(
+      service: "bedrock",
+      region: "us-east-1",
+      credentials_provider: Aws::CredentialProviderChain.new.resolve
+    )
+    signature = signer.sign_request(
+      http_method: request.http_method.to_s.upcase,
+      url: request.url,
+      headers: request.headers.to_h,
+      body: request.body.to_s
+    )
+    signature.headers.each { |name, value| request.headers[name] = value }
+  end
+end
+```
+
+Multiple preprocessors can be given as an array; they run in order at dispatch time.
+
 ### Creating a Callback Class
 
 Create a callback class with `on_complete` and `on_error` methods. Callbacks receive
@@ -189,9 +221,12 @@ PatientLLM.ask(session,
   serializer: :messages,                   # Override the API format
   path: "/chat/completions",               # Override the endpoint path
   headers: {"X-Custom" => "value"},        # Additional HTTP headers
-  params: {max_completion_tokens: 1000}    # Additional request parameters
+  params: {max_completion_tokens: 1000},   # Additional request parameters
+  preprocessors: :aws_sigv4                # Replace the provider's request preprocessors
 )
 ```
+
+Note that `headers` and `params` are merged on top of the provider's configured values, while `preprocessors` (like `url`, `serializer`, and `path`) replaces the provider default. Pass `preprocessors: []` to clear a provider-level preprocessor for a single request.
 
 ### URL composition
 

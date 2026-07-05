@@ -215,6 +215,55 @@ RSpec.describe PatientLLM do
       end
     end
 
+    describe "preprocessors resolution" do
+      it "uses the provider's configured preprocessors" do
+        PatientLLM.configure do |c|
+          c.provider :signed_test, url: "https://example.com", preprocessors: :sign_a
+        end
+
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :signed_test, callback: "TestCallback")
+          expect(captured.call[:request].preprocessors).to eq(["sign_a"])
+        end
+      end
+
+      it "passes per-request preprocessors" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", preprocessors: :sign_b)
+          expect(captured.call[:request].preprocessors).to eq(["sign_b"])
+        end
+      end
+
+      it "replaces provider preprocessors with the per-request override" do
+        PatientLLM.configure do |c|
+          c.provider :signed_override_test, url: "https://example.com", preprocessors: :sign_a
+        end
+
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :signed_override_test, callback: "TestCallback", preprocessors: [:sign_b, :sign_c])
+          expect(captured.call[:request].preprocessors).to eq(["sign_b", "sign_c"])
+        end
+      end
+
+      it "clears provider preprocessors with an empty array" do
+        PatientLLM.configure do |c|
+          c.provider :signed_clear_test, url: "https://example.com", preprocessors: :sign_a
+        end
+
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :signed_clear_test, callback: "TestCallback", preprocessors: [])
+          expect(captured.call[:request].preprocessors).to eq([])
+        end
+      end
+
+      it "sends no preprocessors by default" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+          expect(captured.call[:request].preprocessors).to eq([])
+        end
+      end
+    end
+
     describe "callback_args" do
       it "includes the serialized session" do
         with_fake_handler do |captured|
@@ -306,6 +355,22 @@ RSpec.describe PatientLLM do
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", params: {top_p: 0.9})
           options = captured.call[:callback_args][:request_options]
           expect(options["params"]).to eq({top_p: 0.9})
+        end
+      end
+
+      it "records preprocessors override in request_options" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", preprocessors: :aws_sigv4)
+          options = captured.call[:callback_args][:request_options]
+          expect(options["preprocessors"]).to eq(:aws_sigv4)
+        end
+      end
+
+      it "does not include preprocessors in request_options when not overridden" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+          options = captured.call[:callback_args][:request_options]
+          expect(options).not_to have_key("preprocessors")
         end
       end
 

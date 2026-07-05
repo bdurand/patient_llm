@@ -1,8 +1,17 @@
 PATH
+  remote: ../../patient_http
+  specs:
+    patient_http (1.2.0)
+      async (~> 2.0)
+      async-http (~> 0.60)
+      concurrent-ruby (~> 1.2)
+      logger
+
+PATH
   remote: ..
   specs:
     patient_llm (0.3.0)
-      patient_http (~> 1.1)
+      patient_http (~> 1.2)
       prompt_builder
 
 GEM
@@ -40,6 +49,18 @@ GEM
       traces (~> 0.10)
     async-pool (0.11.2)
       async (>= 2.0)
+    aws-eventstream (1.4.0)
+    aws-partitions (1.1265.0)
+    aws-sdk-core (3.252.0)
+      aws-eventstream (~> 1, >= 1.3.0)
+      aws-partitions (~> 1, >= 1.992.0)
+      aws-sigv4 (~> 1.9)
+      base64
+      bigdecimal
+      jmespath (~> 1, >= 1.6.1)
+      logger
+    aws-sigv4 (1.12.1)
+      aws-eventstream (~> 1, >= 1.0.2)
     base64 (0.3.0)
     bigdecimal (4.1.2)
     concurrent-ruby (1.3.6)
@@ -67,17 +88,13 @@ GEM
       prism (>= 1.3.0)
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
+    jmespath (1.6.2)
     json (2.19.8)
     logger (1.7.0)
     metrics (0.15.0)
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
-    patient_http (1.1.1)
-      async (~> 2.0)
-      async-http (~> 0.60)
-      concurrent-ruby (~> 1.2)
-      logger
     patient_http-sidekiq (1.0.1)
       patient_http
       sidekiq (>= 7.0)
@@ -133,9 +150,11 @@ PLATFORMS
 
 DEPENDENCIES
   activesupport
+  aws-sdk-core
   dotenv
   irb
   json
+  patient_http!
   patient_http-sidekiq
   patient_llm!
   protocol-rack
@@ -146,6 +165,10 @@ CHECKSUMS
   async (2.39.0) sha256=df18730073f2bbb45788077dfa20cb365ecc1b9453969f44de6796b5191a00aa
   async-http (0.95.1) sha256=0c3dd458c204c06d5c4b20b01bbec4794a1203db627fb2ce536e1799ec14786c
   async-pool (0.11.2) sha256=0a43a17b02b04d9c451b7d12fafa9a50e55dc6dd00d4369aca00433f16a7e3ed
+  aws-eventstream (1.4.0) sha256=116bf85c436200d1060811e6f5d2d40c88f65448f2125bc77ffce5121e6e183b
+  aws-partitions (1.1265.0) sha256=591a4e4ba0bfde0a37fcfed1b0f57c8915c44d0564c4c332606bc9926d6f65d1
+  aws-sdk-core (3.252.0) sha256=09c042cbfc2acf2239441cc9b982ebab2a999bed2ef6bdc51849e7b3d6e48a1c
+  aws-sigv4 (1.12.1) sha256=6973ff95cb0fd0dc58ba26e90e9510a2219525d07620c8babeb70ef831826c00
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
@@ -164,11 +187,12 @@ CHECKSUMS
   io-event (1.16.1) sha256=641686f1e919a4890f788b86393026f8ef1394ee4af4d2ab9c24c81e237736ed
   io-stream (0.13.0) sha256=ce24bccb302bdf3ecedef05e8669a687b461621a498d83622fdcab549c9c1636
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
+  jmespath (1.6.2) sha256=238d774a58723d6c090494c8879b5e9918c19485f7e840f2c1c7532cf84ebcb1
   json (2.19.8) sha256=6354310fd76ef69b87d5bd1f38b40d730613baf90b6803d2d0a48f618d32dfaa
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
-  patient_http (1.1.1) sha256=f2778cd4c98a7fba992ab7cac60d15317723605f5e9d02bc6efd2dd71535f340
+  patient_http (1.2.0)
   patient_http-sidekiq (1.0.1) sha256=aa5bf44b2142fdf515564dccbaf3f9894d2bd565d776547f08ca090c1f05f127
   patient_llm (0.3.0)
   pp (0.6.3) sha256=2951d514450b93ccfeb1df7d021cae0da16e0a7f95ee1e2273719669d0ab9df6

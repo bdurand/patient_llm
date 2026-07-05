@@ -73,6 +73,18 @@ RSpec.describe PatientLLM::Configuration do
       config.provider "openai", url: "https://api.openai.com"
       expect(config.lookup(:openai)).not_to be_nil
     end
+
+    it "accepts preprocessors" do
+      config.provider :signed, url: "https://example.com", preprocessors: :aws_sigv4
+      result = config.lookup(:signed)
+      expect(result[:preprocessors]).to eq(:aws_sigv4)
+    end
+
+    it "defaults preprocessors to nil" do
+      config.provider :local, url: "http://localhost:1234"
+      result = config.lookup(:local)
+      expect(result[:preprocessors]).to be_nil
+    end
   end
 
   describe "#lookup" do
