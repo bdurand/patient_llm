@@ -1,13 +1,4 @@
 PATH
-  remote: ../patient_http
-  specs:
-    patient_http (1.2.0)
-      async (~> 2.0)
-      async-http (~> 0.60)
-      concurrent-ruby (~> 1.2)
-      logger
-
-PATH
   remote: .
   specs:
     patient_llm (0.4.0)
@@ -66,6 +57,11 @@ GEM
     parser (3.3.11.1)
       ast (~> 2.4.1)
       racc
+    patient_http (1.2.0)
+      async (~> 2.0)
+      async-http (~> 0.60)
+      concurrent-ruby (~> 1.2)
+      logger
     pp (0.6.4)
       prettyprint
     prettyprint (0.2.0)
@@ -152,7 +148,6 @@ PLATFORMS
 DEPENDENCIES
   bundler
   irb
-  patient_http!
   patient_llm!
   rake
   rspec (~> 3.12, ~> 3.0)
@@ -183,7 +178,7 @@ CHECKSUMS
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   parallel (2.1.0) sha256=b35258865c2e31134c5ecb708beaaf6772adf9d5efae28e93e99260877b09356
   parser (3.3.11.1) sha256=d17ace7aabe3e72c3cc94043714be27cc6f852f104d81aa284c2281aecc65d54
-  patient_http (1.2.0)
+  patient_http (1.2.0) sha256=120afb3fdc50b8e6aa84452744b63fb02cc279009a5511830a685d1c616b7878
   patient_llm (0.4.0)
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
