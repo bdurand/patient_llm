@@ -3,9 +3,6 @@ source "https://rubygems.org"
 gem "patient_llm", path: ".."
 gem "patient_http-sidekiq"
 
-# TEMPORARY until patient_http 1.2.0 is released to rubygems
-gem "patient_http", path: "../../patient_http"
-
 # SigV4 signer and credential chain for Bedrock request signing
 gem "aws-sdk-core"
 
