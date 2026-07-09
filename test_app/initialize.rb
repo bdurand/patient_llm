@@ -33,7 +33,8 @@ PatientLLM.configure do |config|
     config.provider name.to_sym,
       url: PremiumProviders.base_url(name),
       headers: PremiumProviders.auth_header(name),
-      serializer: provider_config[:serializer]
+      serializer: provider_config[:serializer],
+      preprocessors: PremiumProviders.preprocessors(name)
   end
 end
 
@@ -58,7 +59,25 @@ PatientHttp::Sidekiq.configure do |config|
     ChatService.set_result(request_id, result, total_duration)
   end
 
+  if PremiumProviders.bedrock_sigv4?
+    config.register_preprocessor(:aws_sigv4) do |request|
+      signer = Aws::Sigv4::Signer.new(
+        service: "bedrock",
+        region: ENV.fetch("BEDROCK_REGION", "us-east-1"),
+        credentials_provider: Aws::CredentialProviderChain.new.resolve
+      )
+      signature = signer.sign_request(
+        http_method: request.http_method.to_s.upcase,
+        url: request.url,
+        headers: request.headers.to_h,
+        body: request.body.to_s
+      )
+      signature.headers.each { |name, value| request.headers[name] = value }
+    end
+  end
+
   PremiumProviders.available.each_key do |name|
+    next if name == "bedrock" && PremiumProviders.bedrock_sigv4?
     config.register_secret("#{name}.api_key") { PremiumProviders.auth_header_value(name) }
   end
 end

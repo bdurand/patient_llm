@@ -10,12 +10,14 @@ on:
   pull_request:
     branches-ignore:
       - actions-*
+  workflow_dispatch:
 
 env:
   BUNDLE_CLEAN: "true"
   BUNDLE_PATH: vendor/bundle
   BUNDLE_JOBS: 3
   BUNDLE_RETRY: 3
+  RUBYOPT: '--enable=frozen-string-literal --debug=frozen-string-literal'
 
 jobs:
   build:

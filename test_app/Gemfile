@@ -3,6 +3,9 @@ source "https://rubygems.org"
 gem "patient_llm", path: ".."
 gem "patient_http-sidekiq"
 
+# SigV4 signer and credential chain for Bedrock request signing
+gem "aws-sdk-core"
+
 gem "dotenv"
 gem "protocol-rack"
 gem "rack-session"

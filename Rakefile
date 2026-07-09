@@ -32,8 +32,12 @@ task test_app: "test_app:start"
 namespace :test_app do
   desc "Start the test application"
   task :start do
-    ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
-    exec "cd test_app && ruby server"
+    Bundler.with_unbundled_env do
+      ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
+      Dir.chdir("test_app") do
+        exec "ruby server"
+      end
+    end
   end
 
   desc "Stop the running test application on default port 9292 or PORT env var"
@@ -67,14 +71,18 @@ namespace :test_app do
 
   desc "Open an interactive console with test application loaded"
   task :console do
-    ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
-    exec "cd test_app && ruby console"
+    Bundler.with_unbundled_env do
+      ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
+      exec "cd test_app && ruby console"
+    end
   end
 
   desc "Install bundle for the test application"
   task :bundle do
-    ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
-    exec "cd test_app && bundle install"
+    Bundler.with_unbundled_env do
+      ENV["BUNDLE_GEMFILE"] = File.expand_path("test_app/Gemfile", __dir__)
+      exec "cd test_app && bundle install"
+    end
   end
 
   namespace :bundle do

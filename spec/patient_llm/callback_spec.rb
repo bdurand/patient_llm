@@ -299,6 +299,39 @@ RSpec.describe PatientLLM::Callback do
       end
     end
 
+    it "restores the preprocessors override when re-asking after tool execution" do
+      args = callback_args_with_tools.merge(request_options: {"preprocessors" => ["aws_sigv4"]})
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(tool_call_body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      captured = nil
+      fake_handler = ->(request:, callback:, callback_args:, raise_error_responses:) {
+        captured = {request: request, callback_args: callback_args}
+        "req-id"
+      }
+
+      PatientHttp.register_handler(fake_handler)
+      begin
+        test_callback = instance_double(TestCallback, on_complete: nil)
+        allow(TestCallback).to receive(:new).and_return(test_callback)
+
+        callback.on_complete(response)
+
+        expect(captured).not_to be_nil
+        expect(captured[:request].preprocessors).to eq(["aws_sigv4"])
+      ensure
+        PatientHttp.unregister_handler
+      end
+    end
+
     it "invokes on_error when MAX_TOOL_ITERATIONS is exceeded" do
       args = callback_args_with_tools.merge(tool_iteration: PatientLLM::Callback::MAX_TOOL_ITERATIONS)
       response = PatientHttp::Response.new(

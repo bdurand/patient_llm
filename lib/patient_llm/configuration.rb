@@ -29,8 +29,11 @@ module PatientLLM
     # @param path [String, nil] Override the default endpoint path
     # @param completion_path [String, nil] Deprecated alias for +path+
     # @param params [Hash] Additional parameters to merge into every request payload
+    # @param preprocessors [String, Symbol, Array<String, Symbol>, nil] Names of request
+    #   preprocessors to apply to every request (e.g. for request signing). Names must be
+    #   registered on the PatientHttp configuration with `register_preprocessor`.
     # @return [void]
-    def provider(name, url:, headers: {}, serializer: :chat_completion, path: nil, completion_path: nil, params: {})
+    def provider(name, url:, headers: {}, serializer: :chat_completion, path: nil, completion_path: nil, params: {}, preprocessors: nil)
       if completion_path
         warn "PatientLLM::Configuration#provider: the `completion_path:` argument is deprecated; use `path:` instead", uplevel: 1
         path ||= completion_path
@@ -48,7 +51,8 @@ module PatientLLM
         headers: headers,
         serializer: sym,
         path: path,
-        params: params
+        params: params,
+        preprocessors: preprocessors
       }
     end
 

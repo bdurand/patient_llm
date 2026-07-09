@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.4.0
+
+### Added
+
+- Added `preprocessors:` option to provider configuration and `PatientLLM.ask` for applying named PatientHttp request preprocessors (e.g., AWS SigV4 request signing) at dispatch time. A per-request value replaces the provider default; pass an empty array to clear it for a single request.
+
+### Changed
+
+- Requires patient_http version 1.2 or higher.
+
 ## 0.3.0
 
 ### Changed

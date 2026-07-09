@@ -34,17 +34,53 @@ module PremiumProviders
 
   class << self
     # Returns a hash of available premium providers filtered by env var existence.
+    # Bedrock is also available without an API key when AWS credentials resolve,
+    # in which case requests are SigV4 signed.
     #
     # @return [Hash] provider configs keyed by provider name
     def available
-      PROVIDERS.select { |_, config| ENV[config[:env_key]] && !ENV[config[:env_key]].empty? }
+      PROVIDERS.select do |name, config|
+        key = ENV[config[:env_key]]
+        (key && !key.empty?) || (name == "bedrock" && bedrock_sigv4?)
+      end
     end
 
-    # Returns the auth headers for a given provider.
+    # True when the AWS default credential chain resolves. When true, Bedrock
+    # requests are SigV4 signed instead of using the BEDROCK_API_KEY bearer token.
+    # The chain is only consulted when env vars or ~/.aws files suggest credentials
+    # are configured, to avoid the slow EC2 instance metadata probe on machines
+    # with no AWS setup.
+    #
+    # @return [Boolean]
+    def bedrock_sigv4?
+      return @bedrock_sigv4 if defined?(@bedrock_sigv4)
+      @bedrock_sigv4 = begin
+        if aws_credentials_hinted?
+          !Aws::CredentialProviderChain.new.resolve.nil?
+        else
+          false
+        end
+      rescue
+        false
+      end
+    end
+
+    # Returns the preprocessor names for a provider, or nil.
+    #
+    # @param provider_name [String] the provider identifier
+    # @return [Symbol, nil] the preprocessor name
+    def preprocessors(provider_name)
+      :aws_sigv4 if provider_name.to_s == "bedrock" && bedrock_sigv4?
+    end
+
+    # Returns the auth headers for a given provider. SigV4 signing sets the
+    # Authorization header itself, so bedrock gets no bearer header in that mode.
     #
     # @param provider_name [String] the provider identifier
     # @return [Hash] headers hash with the appropriate auth key and secret
     def auth_header(provider_name)
+      return {} if provider_name == "bedrock" && bedrock_sigv4?
+
       secret_name = "#{provider_name}.api_key"
       secret_value = PatientHttp.secret(secret_name)
       case provider_name
@@ -62,6 +98,8 @@ module PremiumProviders
     # @param provider_name [String] the provider identifier
     # @return [String, nil] the formatted header value
     def auth_header_value(provider_name)
+      return nil if provider_name == "bedrock" && bedrock_sigv4?
+
       config = PROVIDERS[provider_name]
       return nil unless config
 
@@ -90,6 +128,15 @@ module PremiumProviders
       when "bedrock"
         "/model/#{model}/converse"
       end
+    end
+
+    # True when the environment suggests AWS credentials may be configured.
+    #
+    # @return [Boolean]
+    def aws_credentials_hinted?
+      return true if ENV["AWS_ACCESS_KEY_ID"] || ENV["AWS_PROFILE"]
+
+      File.exist?(File.expand_path("~/.aws/credentials")) || File.exist?(File.expand_path("~/.aws/config"))
     end
 
     # Returns the resolved base URL for a provider.
