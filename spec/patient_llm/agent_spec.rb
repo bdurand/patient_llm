@@ -1,0 +1,429 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+
+class TestTripAgent < PatientLLM::Agent
+  provider :openai
+  model "gpt-4"
+  instructions "You are a travel assistant."
+  temperature 0.3
+  max_output_tokens 500
+  max_tool_iterations 5
+
+  tool :weather, "Get the weather for a city" do
+    param :city, :string, "City name", required: true
+    param :country, :string
+  end
+
+  output do
+    field :summary, :string, required: true
+    field :packing_list, array: :string
+  end
+
+  class << self
+    attr_accessor :recorded
+  end
+
+  def weather(city:, country: nil, context: nil)
+    self.class.recorded[:weather_args] = {city: city, country: country}
+    self.class.recorded[:weather_context] = context&.to_h
+    "72F in #{city}"
+  end
+
+  def completed(response, context)
+    self.class.recorded[:completed] = response
+    self.class.recorded[:completed_context] = context.to_h
+    self.class.recorded[:last_http_request_id] = last_http_request_id
+    self.class.recorded[:last_http_response] = last_http_response
+  end
+
+  def failed(error, context)
+    self.class.recorded[:failed] = error
+    self.class.recorded[:failed_context] = context.to_h
+  end
+
+  def tool_round(response, context)
+    self.class.recorded[:tool_rounds] ||= 0
+    self.class.recorded[:tool_rounds] += 1
+  end
+end
+
+class TestPlainAgent < PatientLLM::Agent
+  provider :openai
+  model "gpt-4"
+end
+
+RSpec.describe PatientLLM::Agent do
+  before do
+    TestTripAgent.recorded = {}
+  end
+
+  def with_fake_handler
+    captured = []
+    fake_handler = ->(request:, callback:, callback_args:, raise_error_responses:) {
+      captured << {request: request, callback: callback, callback_args: callback_args, raise_error_responses: raise_error_responses}
+      "req-#{captured.size}"
+    }
+
+    PatientHttp.register_handler(fake_handler)
+    begin
+      yield captured
+    ensure
+      PatientHttp.unregister_handler
+    end
+  end
+
+  def http_response(body, callback_args:)
+    PatientHttp::Response.new(
+      callback_args: callback_args,
+      http_method: :post,
+      url: "https://api.openai.com/v1/chat/completions",
+      status: 200,
+      headers: {"content-type" => "application/json"},
+      body: JSON.generate(body),
+      duration: 1.0,
+      request_id: SecureRandom.uuid
+    )
+  end
+
+  def text_body(text)
+    {"choices" => [{"message" => {"role" => "assistant", "content" => text}}], "model" => "gpt-4"}
+  end
+
+  def tool_call_body(name, arguments)
+    {
+      "choices" => [
+        {
+          "message" => {
+            "role" => "assistant",
+            "content" => nil,
+            "tool_calls" => [
+              {"id" => "call_1", "type" => "function", "function" => {"name" => name, "arguments" => JSON.generate(arguments)}}
+            ]
+          }
+        }
+      ],
+      "model" => "gpt-4"
+    }
+  end
+
+  describe "DSL declarations" do
+    it "exposes the declared settings" do
+      expect(TestTripAgent.provider).to eq(:openai)
+      expect(TestTripAgent.model).to eq("gpt-4")
+      expect(TestTripAgent.instructions).to eq("You are a travel assistant.")
+      expect(TestTripAgent.temperature).to eq(0.3)
+      expect(TestTripAgent.max_output_tokens).to eq(500)
+      expect(TestTripAgent.max_tool_iterations).to eq(5)
+    end
+
+    it "declares tools with schemas from blocks" do
+      declaration = TestTripAgent.tools["weather"]
+      expect(declaration[:description]).to eq("Get the weather for a city")
+      expect(declaration[:parameters]["properties"]["city"]).to eq({"type" => "string", "description" => "City name"})
+      expect(declaration[:parameters]["required"]).to eq(["city"])
+    end
+
+    it "declares an output schema" do
+      expect(TestTripAgent.output_schema[:name]).to eq("response")
+      expect(TestTripAgent.output_schema[:schema]["properties"].keys).to contain_exactly("summary", "packing_list")
+    end
+
+    it "copies declarations to subclasses which can override them" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "SpecializedTripAgent"
+        end
+        model "gpt-4o"
+      end
+
+      expect(subclass.model).to eq("gpt-4o")
+      expect(subclass.provider).to eq(:openai)
+      expect(subclass.tools.keys).to eq(["weather"])
+      expect(TestTripAgent.model).to eq("gpt-4")
+    end
+
+    it "raises when a subclass redefines a plumbing method" do
+      expect {
+        Class.new(PatientLLM::Agent) do
+          def on_complete(response)
+          end
+        end
+      }.to raise_error(ArgumentError, /must not redefine on_complete/)
+    end
+  end
+
+  describe ".build_session" do
+    it "applies the agent's declarations to a new session" do
+      session = TestTripAgent.build_session
+
+      expect(session.model).to eq("gpt-4")
+      expect(session.instructions).to eq("You are a travel assistant.")
+      expect(session.temperature).to eq(0.3)
+      expect(session.max_output_tokens).to eq(500)
+      expect(session.text.dig("format", "type")).to eq("json_schema")
+      expect(session.tool_definitions.map(&:name)).to eq(["weather"])
+    end
+
+    it "applies reasoning via think" do
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "ReasoningAgent"
+        end
+        reasoning :medium
+      end
+
+      session = agent.build_session
+      expect(session.reasoning).to eq({"effort" => "medium"})
+    end
+
+    it "raises without a model" do
+      agent = Class.new(PatientLLM::Agent) do
+        def self.name
+          "ModellessAgent"
+        end
+        provider :openai
+      end
+
+      expect { agent.build_session }.to raise_error(ArgumentError, /must declare a model/)
+    end
+  end
+
+  describe ".ask" do
+    it "sends the message through PatientLLM with the agent as the callback" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a weekend in NYC", context: {trip_id: 7})
+
+        args = captured.first[:callback_args]
+        expect(args[:callback]).to eq("TestTripAgent")
+        expect(args[:custom]).to eq({"context" => {"trip_id" => 7}})
+        expect(args[:max_tool_iterations]).to eq(5)
+        expect(args[:session]["input"].last["content"].first["text"]).to eq("Plan a weekend in NYC")
+      end
+    end
+
+    it "raises without a provider" do
+      agent = Class.new(PatientLLM::Agent) do
+        def self.name
+          "ProviderlessAgent"
+        end
+        model "gpt-4"
+      end
+
+      expect { agent.ask("hi") }.to raise_error(ArgumentError, /must declare a provider/)
+    end
+
+    it "forwards per-request overrides" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("hi", timeout: 300, max_tool_iterations: 2)
+
+        expect(captured.first[:request].timeout).to eq(300)
+        expect(captured.first[:callback_args][:max_tool_iterations]).to eq(2)
+      end
+    end
+  end
+
+  describe ".continue" do
+    it "restores the session, re-applies current configuration, and adds the message" do
+      state = PromptBuilder::Session.new(model: "gpt-4").tap { |s| s.user("First message") }.to_h
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Make it kid-friendly")
+
+        session_hash = captured.first[:callback_args][:session]
+        session = PromptBuilder::Session.from_h(session_hash)
+        expect(session.instructions).to eq("You are a travel assistant.")
+        expect(session.tool_definitions.map(&:name)).to eq(["weather"])
+        texts = session.items.select { |i| i.is_a?(PromptBuilder::Items::Message) }.map { |m| m.content.first.text }
+        expect(texts).to eq(["First message", "Make it kid-friendly"])
+      end
+    end
+  end
+
+  describe "completion handling" do
+    it "invokes completed with an Agent::Response exposing text, object, and state" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 7})
+
+        body = text_body('{"summary": "NYC weekend", "packing_list": ["socks"]}')
+        PatientLLM::Callback.new.on_complete(http_response(body, callback_args: captured.first[:callback_args]))
+      end
+
+      response = TestTripAgent.recorded[:completed]
+      expect(response).to be_a(PatientLLM::Agent::Response)
+      expect(response.object).to eq({"summary" => "NYC weekend", "packing_list" => ["socks"]})
+      expect(response.state).to be_a(Hash)
+      expect(TestTripAgent.recorded[:completed_context]).to eq({trip_id: 7})
+      expect(TestTripAgent.recorded[:last_http_request_id]).not_to be_nil
+      expect(TestTripAgent.recorded[:last_http_response]).to be_a(PatientHttp::Response)
+    end
+
+    it "raises StructuredOutputError from object when the response is not JSON" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip")
+        PatientLLM::Callback.new.on_complete(http_response(text_body("not json"), callback_args: captured.first[:callback_args]))
+      end
+
+      response = TestTripAgent.recorded[:completed]
+      expect { response.object }.to raise_error(PatientLLM::StructuredOutputError) do |error|
+        expect(error.text).to eq("not json")
+      end
+    end
+
+    it "raises StructuredOutputError from object when no output schema is declared" do
+      with_fake_handler do |captured|
+        TestPlainAgent.ask("hi")
+        callback_args = captured.first[:callback_args]
+
+        capture = {}
+        Thread.current.thread_variable_set(:patient_llm_agent_capture, capture)
+        begin
+          PatientLLM::Callback.new.on_complete(http_response(text_body("plain text"), callback_args: callback_args))
+        ensure
+          Thread.current.thread_variable_set(:patient_llm_agent_capture, nil)
+        end
+
+        expect(capture[:response].text).to eq("plain text")
+        expect { capture[:response].object }.to raise_error(PatientLLM::StructuredOutputError, /no output schema/)
+      end
+    end
+
+    it "invokes failed with the error" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip")
+
+        error = PatientHttp::RequestError.new(
+          class_name: "Timeout::Error",
+          message: "timed out",
+          backtrace: [],
+          error_type: :timeout,
+          duration: 1.0,
+          request_id: "req-1",
+          url: "https://api.openai.com/v1/chat/completions",
+          http_method: :post,
+          callback_args: captured.first[:callback_args]
+        )
+        PatientLLM::Callback.new.on_error(error)
+      end
+
+      expect(TestTripAgent.recorded[:failed].error_type).to eq(:timeout)
+    end
+
+    it "passes the context to failed and leaves last_http_response nil for transport errors" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 9})
+
+        error = PatientHttp::RequestError.new(
+          class_name: "Timeout::Error",
+          message: "timed out",
+          backtrace: [],
+          error_type: :timeout,
+          duration: 1.0,
+          request_id: "req-1",
+          url: "https://api.openai.com/v1/chat/completions",
+          http_method: :post,
+          callback_args: captured.first[:callback_args]
+        )
+
+        recorded_state = {}
+        allow(TestTripAgent).to receive(:new).and_wrap_original do |original|
+          agent = original.call
+          allow(agent).to receive(:failed).and_wrap_original do |hook, err, ctx|
+            recorded_state[:last_http_response] = agent.last_http_response
+            recorded_state[:last_http_request_id] = agent.last_http_request_id
+            hook.call(err, ctx)
+          end
+          agent
+        end
+
+        PatientLLM::Callback.new.on_error(error)
+
+        expect(recorded_state[:last_http_response]).to be_nil
+        expect(recorded_state[:last_http_request_id]).to eq("req-1")
+      end
+
+      expect(TestTripAgent.recorded[:failed_context]).to eq({trip_id: 9})
+    end
+  end
+
+  describe "tool execution" do
+    it "routes declared tools to agent instance methods, passing context to tools that declare it" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("What's the weather in NYC?", context: {trip_id: 7})
+
+        # First response asks for the weather tool; the loop re-dispatches through the fake handler.
+        PatientLLM::Callback.new.on_complete(http_response(tool_call_body("weather", {"city" => "NYC"}), callback_args: captured.first[:callback_args]))
+        expect(captured.size).to eq(2)
+
+        # The re-dispatched request carries the tool result; complete it with text.
+        second_args = captured.last[:callback_args]
+        expect(second_args[:tool_iteration]).to eq(1)
+        session = PromptBuilder::Session.from_h(second_args[:session])
+        outputs = session.items.select { |i| i.is_a?(PromptBuilder::Items::FunctionCallOutput) }
+        expect(outputs.first.output).to eq("72F in NYC")
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "Cold", "packing_list": []}'), callback_args: second_args))
+      end
+
+      expect(TestTripAgent.recorded[:weather_args]).to eq({city: "NYC", country: nil})
+      expect(TestTripAgent.recorded[:weather_context]).to eq({trip_id: 7})
+      expect(TestTripAgent.recorded[:tool_rounds]).to eq(1)
+      expect(TestTripAgent.recorded[:completed].object["summary"]).to eq("Cold")
+    end
+
+    it "does not handle tools that are not declared" do
+      agent = TestTripAgent.new
+      expect(agent.handles_tool?("weather")).to be true
+      expect(agent.handles_tool?("undeclared")).to be false
+    end
+
+    it "does not pass context to tool methods that do not declare it" do
+      agent_class = Class.new(PatientLLM::Agent) do
+        def self.name
+          "NoContextToolAgent"
+        end
+        provider :openai
+        model "gpt-4"
+
+        tool :ping, "Ping" do
+          param :value, :string
+        end
+
+        def ping(value: nil)
+          "pong #{value}"
+        end
+      end
+
+      agent = agent_class.new
+      expect(agent.invoke_tool("ping", {"value" => "x"})).to eq("pong x")
+    end
+  end
+
+  describe ".ask!" do
+    it "executes the full request and tool loop inline and returns the response" do
+      stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .to_return(
+          {status: 200, headers: {"content-type" => "application/json"}, body: JSON.generate(tool_call_body("weather", {"city" => "NYC"}))},
+          {status: 200, headers: {"content-type" => "application/json"}, body: JSON.generate(text_body('{"summary": "Cold in NYC", "packing_list": ["coat"]}'))}
+        )
+
+      response = TestTripAgent.ask!("What's the weather in NYC?", context: {trip_id: 7})
+
+      expect(response).to be_a(PatientLLM::Agent::Response)
+      expect(response.object).to eq({"summary" => "Cold in NYC", "packing_list" => ["coat"]})
+      expect(TestTripAgent.recorded[:weather_args]).to eq({city: "NYC", country: nil})
+      expect(TestTripAgent.recorded[:completed]).to be_a(PatientLLM::Agent::Response)
+    end
+
+    it "raises the error when the request fails" do
+      stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .to_return(status: 500, body: "oops")
+
+      expect {
+        TestTripAgent.ask!("hi")
+      }.to raise_error(PatientHttp::Error)
+
+      expect(TestTripAgent.recorded[:failed]).to be_a(PatientHttp::Error)
+    end
+  end
+end

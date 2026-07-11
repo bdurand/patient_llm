@@ -43,12 +43,10 @@ RSpec.describe PatientLLM::Configuration do
       expect(result[:path]).to be_nil
     end
 
-    it "accepts the deprecated completion_path as an alias for path" do
-      expect do
+    it "does not accept the removed completion_path argument" do
+      expect {
         config.provider :custom, url: "http://localhost:1234", completion_path: "/api/chat"
-      end.to output(/completion_path.*deprecated/).to_stderr
-      result = config.lookup(:custom)
-      expect(result[:path]).to eq("/api/chat")
+      }.to raise_error(ArgumentError)
     end
 
     it "accepts additional params" do
@@ -153,7 +151,7 @@ RSpec.describe PatientLLM do
 
   describe ".ask" do
     let(:session) do
-      PromptBuilder::Session.new(model: "claude-sonnet-4-20250514").tap { |s| s.user("Hello") }
+      PromptBuilder::Session.new(model: "claude-sonnet-4-20250514", max_output_tokens: 1000).tap { |s| s.user("Hello") }
     end
 
     it "includes the anthropic-version header when using the messages serializer" do

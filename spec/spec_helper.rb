@@ -2,6 +2,8 @@
 
 require "bundler/setup"
 
+require "webmock/rspec"
+
 require_relative "../lib/patient_llm"
 
 # Mock callback class for testing
@@ -12,6 +14,9 @@ class TestCallback
   def on_error(session:, provider:, callback_args:, error:, http_response:, request_id:)
   end
 end
+
+# Register the test secret so inline execution can resolve it
+PatientHttp.register_secret("openai.api_key", "test-api-key")
 
 # Configure a test provider
 PatientLLM.configure do |config|

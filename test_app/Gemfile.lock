@@ -1,9 +1,23 @@
 PATH
+  remote: ../../patient_http
+  specs:
+    patient_http (1.3.0)
+      async (~> 2.0)
+      async-http (~> 0.60)
+      concurrent-ruby (~> 1.2)
+      logger
+
+PATH
+  remote: ../../prompt_builder
+  specs:
+    prompt_builder (0.2.0)
+
+PATH
   remote: ..
   specs:
-    patient_llm (0.4.0)
-      patient_http (~> 1.2)
-      prompt_builder
+    patient_llm (0.5.0)
+      patient_http (~> 1.3)
+      prompt_builder (~> 0.2)
 
 GEM
   remote: https://rubygems.org/
@@ -85,11 +99,6 @@ GEM
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
-    patient_http (1.2.0)
-      async (~> 2.0)
-      async-http (~> 0.60)
-      concurrent-ruby (~> 1.2)
-      logger
     patient_http-sidekiq (1.0.2)
       patient_http
       sidekiq (>= 7.0)
@@ -97,7 +106,6 @@ GEM
       prettyprint
     prettyprint (0.2.0)
     prism (1.9.0)
-    prompt_builder (0.1.2)
     protocol-hpack (1.5.1)
     protocol-http (0.62.2)
     protocol-http1 (0.39.0)
@@ -150,8 +158,10 @@ DEPENDENCIES
   dotenv
   irb
   json
+  patient_http!
   patient_http-sidekiq
   patient_llm!
+  prompt_builder!
   protocol-rack
   rack-session
 
@@ -186,13 +196,13 @@ CHECKSUMS
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
-  patient_http (1.2.0) sha256=120afb3fdc50b8e6aa84452744b63fb02cc279009a5511830a685d1c616b7878
+  patient_http (1.3.0)
   patient_http-sidekiq (1.0.2) sha256=82ad8d0beb45c740e8deb9eca1cfce8c6ee8ed4b1013dc004909454485f7c234
-  patient_llm (0.4.0)
+  patient_llm (0.5.0)
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
-  prompt_builder (0.1.2) sha256=9e60d7fc85dfb264e616cb85c60e60fc77d9589f2c6aceae9f3dca8df18125aa
+  prompt_builder (0.2.0)
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.62.2) sha256=e1c1f2f56029c1af8c4e2b8a67d0d096c76620f3afd8d99d1dcd2f6b8ffa773b
   protocol-http1 (0.39.0) sha256=e49b3f4cda6f5d94c76a323d2b7f6977cba3ebd082d2da437039594da77ad8eb

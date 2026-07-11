@@ -4,7 +4,8 @@ require "spec_helper"
 
 RSpec.describe PatientLLM do
   let(:session) do
-    PromptBuilder::Session.new(model: "gpt-4").tap { |s| s.user("Hello") }
+    # max_output_tokens is set because the :messages serializer requires it
+    PromptBuilder::Session.new(model: "gpt-4", max_output_tokens: 1000).tap { |s| s.user("Hello") }
   end
 
   # Captures the request sent to PatientHttp and returns a fake request id.
@@ -120,13 +121,10 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "accepts the deprecated completion_path argument as an alias for path" do
-        with_fake_handler do |captured|
-          expect do
-            PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
-          end.to output(/completion_path.*deprecated/).to_stderr
-          expect(captured.call[:request].url.to_s).to end_with("/custom/endpoint")
-        end
+      it "does not accept the removed completion_path argument" do
+        expect {
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
+        }.to raise_error(ArgumentError, /completion_path/)
       end
     end
 
@@ -302,11 +300,10 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "includes tool_iteration" do
-        with_fake_handler do |captured|
+      it "does not accept the internal tool_iteration argument" do
+        expect {
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", tool_iteration: 3)
-          expect(captured.call[:callback_args][:tool_iteration]).to eq(3)
-        end
+        }.to raise_error(ArgumentError)
       end
 
       it "defaults tool_iteration to 0" do

@@ -332,6 +332,59 @@ RSpec.describe PatientLLM::Callback do
       end
     end
 
+    it "parses the response with the serializer bound in callback_args even when the provider config differs" do
+      # Regression: the serializer resolved at enqueue must win over the
+      # worker-side provider configuration to prevent build/parse drift.
+      args = callback_args_with_tools.merge(serializer: "chat_completion", provider: "anthropic_drift")
+      PatientLLM.configure do |c|
+        c.provider :anthropic_drift, url: "https://api.anthropic.com", serializer: :messages
+      end
+
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: '{"model":"gpt-4","choices":[{"message":{"role":"assistant","content":"parsed"}}]}',
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      received = nil
+      test_callback = instance_double(TestCallback)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+      allow(test_callback).to receive(:on_complete) { |llm_response:, **| received = llm_response.text }
+
+      callback.on_complete(response)
+
+      expect(received).to eq("parsed")
+    end
+
+    it "respects a custom max_tool_iterations from callback_args" do
+      args = callback_args_with_tools.merge(max_tool_iterations: 2, tool_iteration: 2)
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(tool_call_body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      captured_error = nil
+      test_callback = instance_double(TestCallback)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+      allow(test_callback).to receive(:on_error) { |error:, **| captured_error = error }
+
+      callback.on_complete(response)
+
+      expect(captured_error.error_type).to eq(:max_tool_iterations)
+      expect(captured_error.message).to match(/exceeded 2 iterations/)
+    end
+
     it "invokes on_error when MAX_TOOL_ITERATIONS is exceeded" do
       args = callback_args_with_tools.merge(tool_iteration: PatientLLM::Callback::MAX_TOOL_ITERATIONS)
       response = PatientHttp::Response.new(

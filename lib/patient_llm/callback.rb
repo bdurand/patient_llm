@@ -6,17 +6,20 @@ module PatientLLM
   # Callback class that receives async HTTP responses from PatientHttp and
   # dispatches to the user's callback.
   #
-  # When the response contains tool calls and the global PromptBuilder tool
-  # registry has handlers for those tools, this class executes them
-  # automatically and re-issues the request until the model returns a final
-  # text response or a tool raises {HaltError}. Iteration is capped at
-  # {MAX_TOOL_ITERATIONS} to prevent runaway loops.
+  # When the response contains tool calls and a handler is available for them,
+  # this class executes them automatically and re-issues the request until the
+  # model returns a final text response or a tool raises {HaltError}. Tool
+  # handlers are resolved from the user callback itself when it implements
+  # `handles_tool?`/`invoke_tool` (as {Agent} subclasses do), falling back to
+  # the global PromptBuilder tool registry. Iteration is capped at the resolved
+  # max_tool_iterations for the request (default {MAX_TOOL_ITERATIONS}).
   #
   # The user callback receives a `PromptBuilder::Response` object. Access
   # the response text via `response.text`, token usage via `response.usage`,
   # and model id via `response.model`.
   class Callback
-    # Maximum number of tool-execution rounds before the loop raises.
+    # Default maximum number of tool-execution rounds before the loop raises.
+    # Configurable per provider or per request with the max_tool_iterations option.
     MAX_TOOL_ITERATIONS = 10
 
     # Supported keyword parameters for each user callback method, along with the
@@ -76,15 +79,16 @@ module PatientLLM
       callback_args = response.callback_args
       session = restore_session(callback_args)
       provider_name = callback_args[:provider]
-      request_options = callback_args[:request_options] || {}
       user_callback = resolve_user_callback(callback_args)
       original_request_id = callback_args.fetch(:original_request_id, nil) || response.request_id
 
-      serializer = resolve_serializer(provider_name, request_options)
+      prepare_user_callback(user_callback, session: session, provider: provider_name, callback_args: callback_args, http_response: response, request_id: original_request_id)
+
+      serializer = resolve_serializer(callback_args)
       llm_response = PromptBuilder::Response.parse(response.json, serializer)
 
-      if should_auto_execute_tools?(llm_response)
-        continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, request_options, original_request_id)
+      if should_auto_execute_tools?(llm_response, user_callback)
+        continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, original_request_id)
       else
         session.add_response(llm_response)
         invoke_user_callback(user_callback, :on_complete, session: session, provider: provider_name, llm_response: llm_response, callback_args: user_callback_args(callback_args), http_response: response, request_id: original_request_id)
@@ -102,10 +106,26 @@ module PatientLLM
       http_response = error.respond_to?(:response) ? error.response : nil
       original_request_id = callback_args.fetch(:original_request_id, http_response&.request_id)
       user_callback = resolve_user_callback(callback_args)
+      prepare_user_callback(user_callback, session: session, provider: provider_name, callback_args: callback_args, http_response: http_response, request_id: original_request_id)
       invoke_user_callback(user_callback, :on_error, session: session, provider: provider_name, callback_args: user_callback_args(callback_args), error: error, http_response: http_response, request_id: original_request_id)
     end
 
     private
+
+    # Give stateful callbacks (like Agent) access to the invocation state
+    # before hooks and tool execution run. The callback opts in by defining
+    # a `prepare` method.
+    def prepare_user_callback(user_callback, session:, provider:, callback_args:, http_response:, request_id:)
+      return unless user_callback.respond_to?(:prepare)
+
+      user_callback.prepare(
+        session: session,
+        provider: provider,
+        callback_args: user_callback_args(callback_args),
+        http_response: http_response,
+        request_id: request_id
+      )
+    end
 
     def invoke_user_callback(user_callback, method_name, **values)
       params = user_callback.method(method_name).parameters
@@ -121,7 +141,24 @@ module PatientLLM
 
     def restore_session(callback_args)
       session_hash = callback_args.fetch(:session, {})
+      session_hash = fetch_offloaded_session(session_hash) if session_hash.is_a?(Hash) && session_hash.key?(SESSION_REF_KEY)
       PromptBuilder::Session.from_h(session_hash)
+    end
+
+    def fetch_offloaded_session(reference_hash)
+      reference = reference_hash[SESSION_REF_KEY]
+      store_name = reference["payload_store"]
+      store = PatientHttp.default_configuration&.payload_store(store_name)
+      unless store
+        raise ArgumentError, "Session was offloaded to payload store #{store_name.inspect} but it is not registered on the PatientHttp configuration"
+      end
+
+      session_hash = store.fetch(reference["key"])
+      if session_hash.nil?
+        raise ArgumentError, "Offloaded session #{reference["key"].inspect} was not found in payload store #{store_name.inspect}"
+      end
+
+      session_hash
     end
 
     def resolve_user_callback(callback_args)
@@ -138,27 +175,39 @@ module PatientLLM
       PatientHttp::CallbackArgs.new(callback_args[:custom] || {})
     end
 
-    def resolve_serializer(provider_name, request_options)
-      if request_options["serializer"] && !request_options["serializer"].empty?
-        return request_options["serializer"].to_sym
-      end
+    def resolve_serializer(callback_args)
+      serializer = callback_args.fetch(:serializer, nil)
+      return serializer.to_sym if serializer && !serializer.to_s.empty?
 
-      provider_config = PatientLLM.provider(provider_name)
+      # Fallback for in-flight jobs enqueued before the serializer traveled in
+      # the callback args.
+      request_options = callback_args.fetch(:request_options, nil) || {}
+      return request_options["serializer"].to_sym if request_options["serializer"] && !request_options["serializer"].empty?
+
+      provider_config = PatientLLM.provider(callback_args[:provider])
       provider_config&.dig(:serializer) || :chat_completion
     end
 
-    def should_auto_execute_tools?(llm_response)
+    def max_tool_iterations(callback_args)
+      callback_args.fetch(:max_tool_iterations, MAX_TOOL_ITERATIONS).to_i
+    end
+
+    def should_auto_execute_tools?(llm_response, user_callback)
       return false unless llm_response.has_tool_calls?
 
       llm_response.tool_calls.any? do |call|
-        PromptBuilder.tool_registry.handler_for(call.name)
+        callback_handles_tool?(user_callback, call.name) || PromptBuilder.tool_registry.handler_for(call.name)
       end
     end
 
-    def continue_tool_loop(session, provider_name, llm_response, callback_args, http_response, user_callback, request_options, original_request_id)
+    def callback_handles_tool?(user_callback, name)
+      user_callback.respond_to?(:handles_tool?) && user_callback.handles_tool?(name)
+    end
+
+    def continue_tool_loop(session, provider_name, llm_response, callback_args, http_response, user_callback, original_request_id)
       iteration = callback_args.fetch(:tool_iteration, 0).to_i
-      if iteration >= MAX_TOOL_ITERATIONS
-        error = max_tool_iterations_error(http_response, original_request_id)
+      if iteration >= max_tool_iterations(callback_args)
+        error = max_tool_iterations_error(callback_args, http_response, original_request_id)
         invoke_user_callback(user_callback, :on_error, session: session, provider: provider_name, callback_args: user_callback_args(callback_args), error: error, http_response: http_response, request_id: original_request_id)
         return
       end
@@ -167,7 +216,7 @@ module PatientLLM
 
       halt = nil
       llm_response.tool_calls.each do |function_call|
-        result, halted = execute_tool(function_call)
+        result, halted = execute_tool(function_call, user_callback)
         halt = halted if halted
 
         session.add_item(
@@ -180,16 +229,9 @@ module PatientLLM
       end
 
       if halt
-        content = halt.content
-        halt_response = PromptBuilder::Response.new(
+        halt_response = PromptBuilder::Response.from_text(
+          halt.content.to_s,
           model: llm_response.model,
-          status: "completed",
-          output: [
-            PromptBuilder::Items::Message.new(
-              role: "assistant",
-              content: [PromptBuilder::Content::OutputText.new(text: content || "")]
-            )
-          ],
           usage: llm_response.usage
         )
         session.add_response(halt_response)
@@ -201,28 +243,22 @@ module PatientLLM
         invoke_user_callback(user_callback, :on_tool_use, session: session, provider: provider_name, llm_response: llm_response, callback_args: user_callback_args(callback_args), http_response: http_response, request_id: original_request_id)
       end
 
-      # Re-ask with the updated session
-      ask_kwargs = {
-        provider: provider_name.to_sym,
+      # Re-ask with the updated session, passing the original request options
+      # through wholesale so per-request overrides survive every iteration.
+      PatientLLM.dispatch(
+        session,
+        provider: provider_name,
         callback: callback_args[:callback],
-        callback_args: callback_args[:custom],
+        callback_args: callback_args[:custom] || {},
+        request_options: callback_args.fetch(:request_options, nil) || {},
         tool_iteration: iteration + 1,
         original_request_id: original_request_id
-      }
-
-      # Restore per-request overrides
-      ask_kwargs[:url] = request_options["url"] if request_options["url"]
-      ask_kwargs[:serializer] = request_options["serializer"].to_sym if request_options["serializer"]
-      ask_kwargs[:path] = request_options["path"] if request_options["path"]
-      ask_kwargs[:headers] = request_options["headers"] if request_options["headers"]
-      ask_kwargs[:params] = request_options["params"] if request_options["params"]
-      ask_kwargs[:preprocessors] = request_options["preprocessors"] if request_options["preprocessors"]
-
-      PatientLLM.ask(session, **ask_kwargs)
+      )
     end
 
-    def max_tool_iterations_error(http_response, request_id)
-      exception = MaxToolIterationsError.new("Tool-call loop exceeded #{MAX_TOOL_ITERATIONS} iterations")
+    def max_tool_iterations_error(callback_args, http_response, request_id)
+      limit = max_tool_iterations(callback_args)
+      exception = MaxToolIterationsError.new("Tool-call loop exceeded #{limit} iterations")
       PatientHttp::RequestError.new(
         class_name: exception.class.name,
         message: exception.message,
@@ -235,11 +271,16 @@ module PatientLLM
       )
     end
 
-    def execute_tool(function_call)
+    def execute_tool(function_call, user_callback)
       name = function_call.name
       args = function_call.parsed_arguments
 
-      result = PromptBuilder.tool_registry.invoke(name, args)
+      result =
+        if callback_handles_tool?(user_callback, name)
+          user_callback.invoke_tool(name, args)
+        else
+          PromptBuilder.tool_registry.invoke(name, args)
+        end
       [format_result(result), nil]
     rescue HaltError => e
       [format_result(e.content), e]
