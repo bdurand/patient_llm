@@ -49,13 +49,13 @@ class TripPlannerAgent < PatientLLM::Agent
   end
 
   # Runs in the worker when the final response arrives (after any tool rounds).
-  def completed(response, context)
-    trip = Trip.find(context[:trip_id])
+  def completed(response)
+    trip = Trip.find(response.context[:trip_id])
     trip.update!(plan: response.object, agent_state: response.state)
   end
 
-  def failed(error, context)
-    Rails.logger.error("Trip planning failed: #{error.error_type} #{error.message}")
+  def failed(failure)
+    Rails.logger.error("Trip planning failed: #{failure.error_type} #{failure.message}")
   end
 end
 ```
@@ -208,9 +208,16 @@ end
 
 A raw JSON Schema hash is also accepted: `tool :search, "...", parameters: {...}`.
 
-When the model responds with tool calls, the gem automatically executes the matching methods, appends the results to the session, and re-issues the request — until the model returns a plain text response or the iteration cap is reached. Your `completed` hook only fires for the final response; define `tool_round(response, context)` to observe intermediate rounds. Raise `PatientLLM::HaltError.new(content: "...")` from a tool method to stop the loop and surface the content as the final response.
+When the model responds with tool calls, the gem automatically executes the matching methods, appends the results to the session, and re-issues the request — until the model returns a plain text response or the iteration cap is reached. Your `completed` hook only fires for the final response; define `tool_round(response)` to observe intermediate rounds. Raise `PatientLLM::HaltError.new(content: "...")` from a tool method to stop the loop and surface the content as the final response.
 
-Hooks receive the `context` passed to `ask`/`continue` as their second argument. A tool method that declares a `context:` keyword receives it too:
+### Hooks
+
+Each hook receives a single object bundling the whole invocation:
+
+- `completed(response)` and `tool_round(response)` receive a `PatientLLM::Agent::Response` exposing `text`, `object` (parsed structured output), `state` (the serializable session), `usage`, `model`, `tool_calls`, `session`, `context` (what you passed to `ask`/`continue`), `http_response` (the `PatientHttp::Response` — status, headers, body, duration), and `http_request_id`. In `completed` the HTTP exchange is the final request's; in `tool_round` it is that round's.
+- `failed(failure)` receives a `PatientLLM::Agent::Failure` exposing the `error` (with `error_type`, `message`, and `error_class` delegated for convenience) alongside the same `session`, `state`, `context`, `http_response`, and `http_request_id`. The `http_response` is nil for non-HTTP errors such as timeouts and connection failures.
+
+A tool method that declares a `context:` keyword receives the context too:
 
 ```ruby
 def search(query:, context:)
@@ -218,12 +225,7 @@ def search(query:, context:)
 end
 ```
 
-Inside hooks and tool methods the agent also exposes instance readers for the rest of the invocation state:
-
-- `session` — the `PromptBuilder::Session` for the conversation
-- `provider` — the provider name
-- `last_http_response` — the `PatientHttp::Response` of the most recent HTTP exchange (status, headers, body, duration). In `completed` this is the final request's response; in `failed` it is nil for non-HTTP errors such as timeouts and connection failures.
-- `last_http_request_id` — the request id of the most recent HTTP exchange (may also be nil for non-HTTP errors)
+Inside hooks and tool methods the agent also exposes `session` and `provider` instance readers.
 
 > [!NOTE]
 > Tool handlers execute synchronously inside the callback worker (e.g. a Sidekiq job). Keep handlers fast to avoid blocking the worker pool. If a tool needs to do slow work, consider offloading it and using `HaltError` to stop the auto-loop.
@@ -240,7 +242,7 @@ output do
   end
 end
 
-def completed(response, context)
+def completed(response)
   response.object   # => parsed Hash matching the schema
 end
 ```
@@ -252,8 +254,8 @@ end
 `response.state` is a JSON-native hash of the full conversation. Persist it anywhere, then continue:
 
 ```ruby
-def completed(response, context)
-  Conversation.find(context[:conversation_id]).update!(state: response.state)
+def completed(response)
+  Conversation.find(response.context[:conversation_id]).update!(state: response.state)
 end
 
 # Later:

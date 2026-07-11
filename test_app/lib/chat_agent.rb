@@ -49,14 +49,14 @@ class ChatAgent < PatientLLM::Agent
   end
 
   # Store the final response where the web UI polls for it.
-  def completed(response, context)
+  def completed(response)
     message = {
       role: "assistant",
       content: response.text,
       model_id: response.model,
       input_tokens: response.usage&.input_tokens,
       output_tokens: response.usage&.output_tokens,
-      duration: last_http_response.duration&.round(1)
+      duration: response.http_response.duration&.round(1)
     }
 
     text_format = session.text&.dig("format", "type")
@@ -69,52 +69,52 @@ class ChatAgent < PatientLLM::Agent
       timestamp: Time.now.iso8601
     }
 
-    ChatService.record_request_duration(context[:request_id], last_http_response.duration)
-    store_result(result, context)
+    ChatService.record_request_duration(response.context[:request_id], response.http_response.duration)
+    store_result(result, response.context)
 
     Sidekiq.logger.info("#{self.class.name} completion stored: #{response.text&.slice(0, 100)}...")
   end
 
   # Record each automatic tool round so the UI can show the request count and
   # cumulative HTTP duration.
-  def tool_round(response, context)
-    ChatService.record_request_duration(context[:request_id], last_http_response.duration)
+  def tool_round(response)
+    ChatService.record_request_duration(response.context[:request_id], response.http_response.duration)
     Sidekiq.logger.info("#{self.class.name} executed tools: #{response.tool_calls.map(&:name).join(", ")}")
   end
 
   # Store the error where the web UI polls for it.
-  def failed(error, context)
+  def failed(failure)
     result = {
       success: false,
       error: {
-        type: error.error_type.to_s,
-        message: error.message,
-        error_class: error.error_class
+        type: failure.error_type.to_s,
+        message: failure.message,
+        error_class: failure.error_class
       },
-      session: session.to_h,
+      session: failure.state,
       timestamp: Time.now.iso8601
     }
 
-    # last_http_response is nil for transport errors (timeouts, connection failures)
-    if last_http_response
-      if last_http_response.json?
+    # http_response is nil for transport errors (timeouts, connection failures)
+    if failure.http_response
+      if failure.http_response.json?
         begin
-          result[:error][:details] = last_http_response.json
+          result[:error][:details] = failure.http_response.json
         rescue JSON::ParserError
           # Ignore JSON parsing errors in the error response
         end
       end
 
-      if last_http_response.json? || last_http_response.content_type.to_s.downcase.include?("text/plain")
-        response_body = last_http_response.body
+      if failure.http_response.json? || failure.http_response.content_type.to_s.downcase.include?("text/plain")
+        response_body = failure.http_response.body
       end
 
-      ChatService.record_request_duration(context[:request_id], last_http_response.duration)
+      ChatService.record_request_duration(failure.context[:request_id], failure.http_response.duration)
     end
 
-    store_result(result, context)
+    store_result(result, failure.context)
 
-    log_message = "#{self.class.name} error: #{error.error_type} - #{error.message}"
+    log_message = "#{self.class.name} error: #{failure.error_type} - #{failure.message}"
     log_message += " | response_body: #{response_body}" if response_body
     Sidekiq.logger.error(log_message)
   end

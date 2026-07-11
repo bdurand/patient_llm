@@ -3,9 +3,10 @@
 module PatientLLM
   class Agent
     # The response delivered to an agent's hooks. Wraps the parsed
-    # PromptBuilder::Response together with the session so hooks have one
-    # object with everything they need: the text, the parsed structured
-    # output, usage, and the serializable conversation state for multi-turn
+    # PromptBuilder::Response together with the rest of the invocation state
+    # so hooks have one object with everything they need: the text, the
+    # parsed structured output, usage, the HTTP exchange, the context passed
+    # to ask/continue, and the serializable conversation state for multi-turn
     # persistence.
     class Response
       # @return [PromptBuilder::Response] the underlying LLM response
@@ -14,10 +15,24 @@ module PatientLLM
       # @return [PromptBuilder::Session] the session including this response
       attr_reader :session
 
-      def initialize(llm_response, session:, output_schema: nil)
+      # @return [PatientHttp::Response, nil] the HTTP response that produced
+      #   this LLM response. In completed this is the final request's
+      #   response; in tool_round it is that round's response.
+      attr_reader :http_response
+
+      # @return [String, nil] the request id of the HTTP exchange
+      attr_reader :http_request_id
+
+      # @return [PatientHttp::CallbackArgs] the context passed to ask/continue
+      attr_reader :context
+
+      def initialize(llm_response, session:, output_schema: nil, http_response: nil, http_request_id: nil, context: nil)
         @llm_response = llm_response
         @session = session
         @output_schema = output_schema
+        @http_response = http_response
+        @http_request_id = http_request_id
+        @context = context
       end
 
       # The text of the response.

@@ -30,12 +30,12 @@ module PatientLLM
   #       WeatherService.forecast(city: city, country: country)
   #     end
   #
-  #     def completed(response, context)
-  #       Trip.find(context[:trip_id]).update!(plan: response.object, agent_state: response.state)
+  #     def completed(response)
+  #       Trip.find(response.context[:trip_id]).update!(plan: response.object, agent_state: response.state)
   #     end
   #
-  #     def failed(error, context)
-  #       Rails.logger.error("#{error.error_type}: #{error.message}")
+  #     def failed(failure)
+  #       Rails.logger.error("#{failure.error_type}: #{failure.message}")
   #     end
   #   end
   #
@@ -44,6 +44,7 @@ module PatientLLM
   #   response = TripPlannerAgent.ask!("Plan a weekend in NYC")  # inline, for consoles and tests
   class Agent
     autoload :Response, File.expand_path("agent/response", __dir__)
+    autoload :Failure, File.expand_path("agent/failure", __dir__)
 
     # Methods that implement the callback plumbing contract. Subclasses must
     # override the completed/failed/tool_round hooks instead.
@@ -178,8 +179,8 @@ module PatientLLM
       # is invoked in the worker; errors invoke `failed`.
       #
       # @param message [String, Array, Hash, nil] the user message to add
-      # @param context [Hash] JSON-native data available as `context` in hooks
-      #   and tool methods
+      # @param context [Hash] JSON-native data available as `context` on the
+      #   response/failure objects in hooks and to tool methods
       # @param session [PromptBuilder::Session, nil] an existing session to use
       #   instead of building a new one
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
@@ -209,7 +210,7 @@ module PatientLLM
       #
       # @param state [Hash] a session state hash from `response.state`
       # @param message [String, Array, Hash, nil] the user message to add
-      # @param context [Hash] JSON-native data available as `context` in hooks
+      # @param context [Hash] JSON-native data available as `context` on the response/failure objects in hooks
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       # @return [Object] handler-specific identifier for the enqueued request
       def continue(state, message = nil, context: {}, **options)
@@ -224,7 +225,7 @@ module PatientLLM
       # The completed/failed hooks still run, so this exercises real code paths.
       #
       # @param message [String, Array, Hash, nil] the user message to add
-      # @param context [Hash] JSON-native data available as `context` in hooks
+      # @param context [Hash] JSON-native data available as `context` on the response/failure objects in hooks
       # @param session [PromptBuilder::Session, nil] an existing session to use
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       # @return [Agent::Response] the final response
@@ -320,16 +321,6 @@ module PatientLLM
     # @return [String, nil] the provider name for the current invocation
     attr_reader :provider
 
-    # @return [PatientHttp::Response, nil] the response of the most recent HTTP
-    #   exchange. In completed this is the final request's response; in
-    #   tool_round it is that round's response; in failed it is nil for
-    #   non-HTTP errors (timeouts, connection failures).
-    attr_reader :last_http_response
-
-    # @return [String, nil] the request id of the most recent HTTP exchange.
-    #   May be nil for non-HTTP errors.
-    attr_reader :last_http_request_id
-
     # Plumbing: called by {Callback} before hooks and tool execution to make the
     # invocation state available to instance methods. Do not override.
     #
@@ -338,39 +329,59 @@ module PatientLLM
       @session = session
       @provider = provider
       @callback_context = PatientHttp::CallbackArgs.new((callback_args && callback_args[:context]) || {})
-      @last_http_response = http_response
-      @last_http_request_id = http_response&.request_id
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
-    # `completed(response, context)` instead.
+    # `completed(response)` instead.
     #
     # @api private
     def on_complete(session:, provider:, llm_response:, callback_args:, http_response:, request_id:)
       prepare(session: session, provider: provider, callback_args: callback_args, http_response: http_response, request_id: request_id)
-      response = Response.new(llm_response, session: session, output_schema: self.class.output_schema)
+      response = Response.new(
+        llm_response,
+        session: session,
+        output_schema: self.class.output_schema,
+        http_response: http_response,
+        http_request_id: http_response&.request_id,
+        context: @callback_context
+      )
       capture_result(:response, response)
-      completed(response, @callback_context)
+      completed(response)
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
-    # `tool_round(response, context)` instead.
+    # `tool_round(response)` instead.
     #
     # @api private
     def on_tool_use(session:, provider:, llm_response:, callback_args:, http_response:, request_id:)
       prepare(session: session, provider: provider, callback_args: callback_args, http_response: http_response, request_id: request_id)
-      tool_round(Response.new(llm_response, session: session), @callback_context)
+      response = Response.new(
+        llm_response,
+        session: session,
+        http_response: http_response,
+        http_request_id: http_response&.request_id,
+        context: @callback_context
+      )
+      tool_round(response)
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
-    # `failed(error, context)` instead.
+    # `failed(failure)` instead.
     #
     # @api private
     def on_error(session:, provider:, callback_args:, error:, http_response:, request_id:)
       prepare(session: session, provider: provider, callback_args: callback_args, http_response: http_response, request_id: request_id)
-      @last_http_request_id ||= error.request_id if error.respond_to?(:request_id)
+      http_request_id = http_response&.request_id
+      http_request_id ||= error.request_id if error.respond_to?(:request_id)
+      failure = Failure.new(
+        error,
+        session: session,
+        http_response: http_response,
+        http_request_id: http_request_id,
+        context: @callback_context
+      )
       capture_result(:error, error)
-      failed(error, @callback_context)
+      failed(failure)
     end
 
     # Plumbing: whether this agent handles the named tool with an instance
@@ -397,19 +408,18 @@ module PatientLLM
     # Hook: invoked with the final {Agent::Response} after any automatic tool
     # rounds complete. Override in your agent.
     #
-    # @param response [Agent::Response]
-    # @param context [PatientHttp::CallbackArgs] the context passed to ask/continue
+    # @param response [Agent::Response] the final response; exposes the text,
+    #   structured output, session state, HTTP exchange, and context
     # @return [void]
-    def completed(response, context)
+    def completed(response)
     end
 
     # Hook: invoked when a request fails. Override in your agent.
     #
-    # @param error [PatientHttp::Error] the error; exposes error_type, message,
-    #   error_class, request_id, and response (for HTTP errors)
-    # @param context [PatientHttp::CallbackArgs] the context passed to ask/continue
+    # @param failure [Agent::Failure] the failure; exposes the error along
+    #   with the session, HTTP exchange, and context
     # @return [void]
-    def failed(error, context)
+    def failed(failure)
     end
 
     # Hook: invoked once per automatic tool round, after the tools run and
@@ -417,9 +427,8 @@ module PatientLLM
     # intermediate progress.
     #
     # @param response [Agent::Response] the intermediate tool-call response
-    # @param context [PatientHttp::CallbackArgs] the context passed to ask/continue
     # @return [void]
-    def tool_round(response, context)
+    def tool_round(response)
     end
 
     private

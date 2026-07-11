@@ -30,21 +30,20 @@ class TestTripAgent < PatientLLM::Agent
     "72F in #{city}"
   end
 
-  def completed(response, context)
+  def completed(response)
     self.class.recorded[:completed] = response
-    self.class.recorded[:completed_context] = context.to_h
-    self.class.recorded[:last_http_request_id] = last_http_request_id
-    self.class.recorded[:last_http_response] = last_http_response
+    self.class.recorded[:completed_context] = response.context.to_h
   end
 
-  def failed(error, context)
-    self.class.recorded[:failed] = error
-    self.class.recorded[:failed_context] = context.to_h
+  def failed(failure)
+    self.class.recorded[:failed] = failure
+    self.class.recorded[:failed_context] = failure.context.to_h
   end
 
-  def tool_round(response, context)
+  def tool_round(response)
     self.class.recorded[:tool_rounds] ||= 0
     self.class.recorded[:tool_rounds] += 1
+    self.class.recorded[:tool_round_response] = response
   end
 end
 
@@ -241,7 +240,7 @@ RSpec.describe PatientLLM::Agent do
   end
 
   describe "completion handling" do
-    it "invokes completed with an Agent::Response exposing text, object, and state" do
+    it "invokes completed with an Agent::Response exposing text, object, state, context, and the HTTP exchange" do
       with_fake_handler do |captured|
         TestTripAgent.ask("Plan a trip", context: {trip_id: 7})
 
@@ -253,9 +252,10 @@ RSpec.describe PatientLLM::Agent do
       expect(response).to be_a(PatientLLM::Agent::Response)
       expect(response.object).to eq({"summary" => "NYC weekend", "packing_list" => ["socks"]})
       expect(response.state).to be_a(Hash)
+      expect(response.context.to_h).to eq({trip_id: 7})
+      expect(response.http_response).to be_a(PatientHttp::Response)
+      expect(response.http_request_id).to eq(response.http_response.request_id)
       expect(TestTripAgent.recorded[:completed_context]).to eq({trip_id: 7})
-      expect(TestTripAgent.recorded[:last_http_request_id]).not_to be_nil
-      expect(TestTripAgent.recorded[:last_http_response]).to be_a(PatientHttp::Response)
     end
 
     it "raises StructuredOutputError from object when the response is not JSON" do
@@ -288,7 +288,7 @@ RSpec.describe PatientLLM::Agent do
       end
     end
 
-    it "invokes failed with the error" do
+    it "invokes failed with an Agent::Failure wrapping the error" do
       with_fake_handler do |captured|
         TestTripAgent.ask("Plan a trip")
 
@@ -306,10 +306,15 @@ RSpec.describe PatientLLM::Agent do
         PatientLLM::Callback.new.on_error(error)
       end
 
-      expect(TestTripAgent.recorded[:failed].error_type).to eq(:timeout)
+      failure = TestTripAgent.recorded[:failed]
+      expect(failure).to be_a(PatientLLM::Agent::Failure)
+      expect(failure.error).to be_a(PatientHttp::RequestError)
+      expect(failure.error_type).to eq(:timeout)
+      expect(failure.message).to eq("timed out")
+      expect(failure.state).to be_a(Hash)
     end
 
-    it "passes the context to failed and leaves last_http_response nil for transport errors" do
+    it "exposes the context on the failure and leaves http_response nil for transport errors" do
       with_fake_handler do |captured|
         TestTripAgent.ask("Plan a trip", context: {trip_id: 9})
 
@@ -325,23 +330,12 @@ RSpec.describe PatientLLM::Agent do
           callback_args: captured.first[:callback_args]
         )
 
-        recorded_state = {}
-        allow(TestTripAgent).to receive(:new).and_wrap_original do |original|
-          agent = original.call
-          allow(agent).to receive(:failed).and_wrap_original do |hook, err, ctx|
-            recorded_state[:last_http_response] = agent.last_http_response
-            recorded_state[:last_http_request_id] = agent.last_http_request_id
-            hook.call(err, ctx)
-          end
-          agent
-        end
-
         PatientLLM::Callback.new.on_error(error)
-
-        expect(recorded_state[:last_http_response]).to be_nil
-        expect(recorded_state[:last_http_request_id]).to eq("req-1")
       end
 
+      failure = TestTripAgent.recorded[:failed]
+      expect(failure.http_response).to be_nil
+      expect(failure.http_request_id).to eq("req-1")
       expect(TestTripAgent.recorded[:failed_context]).to eq({trip_id: 9})
     end
   end
@@ -368,6 +362,8 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.recorded[:weather_args]).to eq({city: "NYC", country: nil})
       expect(TestTripAgent.recorded[:weather_context]).to eq({trip_id: 7})
       expect(TestTripAgent.recorded[:tool_rounds]).to eq(1)
+      expect(TestTripAgent.recorded[:tool_round_response].http_response).to be_a(PatientHttp::Response)
+      expect(TestTripAgent.recorded[:tool_round_response].context.to_h).to eq({trip_id: 7})
       expect(TestTripAgent.recorded[:completed].object["summary"]).to eq("Cold")
     end
 
@@ -423,7 +419,8 @@ RSpec.describe PatientLLM::Agent do
         TestTripAgent.ask!("hi")
       }.to raise_error(PatientHttp::Error)
 
-      expect(TestTripAgent.recorded[:failed]).to be_a(PatientHttp::Error)
+      expect(TestTripAgent.recorded[:failed]).to be_a(PatientLLM::Agent::Failure)
+      expect(TestTripAgent.recorded[:failed].error).to be_a(PatientHttp::Error)
     end
   end
 end
