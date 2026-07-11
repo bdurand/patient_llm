@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+# Suppress the IO::Buffer experimental warning triggered by io-event (via async-http)
+Warning[:experimental] = false
+
 require "bundler/setup"
 
 require "webmock/rspec"

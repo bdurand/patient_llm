@@ -1,18 +1,4 @@
 PATH
-  remote: ../../patient_http
-  specs:
-    patient_http (1.3.0)
-      async (~> 2.0)
-      async-http (~> 0.60)
-      concurrent-ruby (~> 1.2)
-      logger
-
-PATH
-  remote: ../../prompt_builder
-  specs:
-    prompt_builder (0.2.0)
-
-PATH
   remote: ..
   specs:
     patient_llm (0.5.0)
@@ -55,7 +41,7 @@ GEM
     async-pool (0.11.2)
       async (>= 2.0)
     aws-eventstream (1.4.0)
-    aws-partitions (1.1267.0)
+    aws-partitions (1.1268.0)
     aws-sdk-core (3.254.0)
       aws-eventstream (~> 1, >= 1.3.0)
       aws-partitions (~> 1, >= 1.992.0)
@@ -70,7 +56,7 @@ GEM
     bigdecimal (4.1.2)
     concurrent-ruby (1.3.7)
     connection_pool (3.0.2)
-    console (1.36.0)
+    console (1.37.0)
       fiber-annotation
       fiber-local (~> 1.1)
       json
@@ -99,13 +85,19 @@ GEM
     minitest (6.0.6)
       drb (~> 2.0)
       prism (~> 1.5)
-    patient_http-sidekiq (1.0.2)
-      patient_http
+    patient_http (1.3.0)
+      async (~> 2.0)
+      async-http (~> 0.60)
+      concurrent-ruby (~> 1.2)
+      logger
+    patient_http-sidekiq (1.1.0)
+      patient_http (>= 1.3.0)
       sidekiq (>= 7.0)
     pp (0.6.4)
       prettyprint
     prettyprint (0.2.0)
     prism (1.9.0)
+    prompt_builder (0.2.0)
     protocol-hpack (1.5.1)
     protocol-http (0.62.2)
     protocol-http1 (0.39.0)
@@ -158,10 +150,8 @@ DEPENDENCIES
   dotenv
   irb
   json
-  patient_http!
   patient_http-sidekiq
   patient_llm!
-  prompt_builder!
   protocol-rack
   rack-session
 
@@ -171,14 +161,14 @@ CHECKSUMS
   async-http (0.95.1) sha256=0c3dd458c204c06d5c4b20b01bbec4794a1203db627fb2ce536e1799ec14786c
   async-pool (0.11.2) sha256=0a43a17b02b04d9c451b7d12fafa9a50e55dc6dd00d4369aca00433f16a7e3ed
   aws-eventstream (1.4.0) sha256=116bf85c436200d1060811e6f5d2d40c88f65448f2125bc77ffce5121e6e183b
-  aws-partitions (1.1267.0) sha256=15a4c6bef8c303b09a1452c675cecb1ace0238dc91e26fe4646c5d761cb2221e
+  aws-partitions (1.1268.0) sha256=61c41c23445380425455e549dcb283f0df50aa2f3d71892f692572fed9ef6c0f
   aws-sdk-core (3.254.0) sha256=ee3e3220b8468a3c9e59daba18e6ec897bf5c7ce8adcc0670cfa2f1f092112fe
   aws-sigv4 (1.12.1) sha256=6973ff95cb0fd0dc58ba26e90e9510a2219525d07620c8babeb70ef831826c00
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
   bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
   concurrent-ruby (1.3.7) sha256=4412caec3a5ea2e5fdc52076724c071a81f2c0593d83b2ac8cbb8ca63b3151b0
   connection_pool (3.0.2) sha256=33fff5ba71a12d2aa26cb72b1db8bba2a1a01823559fb01d29eb74c286e62e0a
-  console (1.36.0) sha256=45599ea906cf80a73d8941f03abf873fe66a6a954e0bac5bc1c01e2cdc406f07
+  console (1.37.0) sha256=8093b286c2595a063849c098594fee5155ecc7967d36f3aa8cbe7569c8f3efd7
   dotenv (3.2.0) sha256=e375b83121ea7ca4ce20f214740076129ab8514cd81378161f11c03853fe619d
   drb (2.2.3) sha256=0b00d6fdb50995fe4a45dea13663493c841112e4068656854646f418fda13373
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
@@ -196,13 +186,13 @@ CHECKSUMS
   logger (1.7.0) sha256=196edec7cc44b66cfb40f9755ce11b392f21f7967696af15d274dde7edff0203
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   minitest (6.0.6) sha256=153ea36d1d987a62942382b61075745042a2b3123b1cd48f4c3675af9cc7d6f1
-  patient_http (1.3.0)
-  patient_http-sidekiq (1.0.2) sha256=82ad8d0beb45c740e8deb9eca1cfce8c6ee8ed4b1013dc004909454485f7c234
+  patient_http (1.3.0) sha256=b43f816f638e956ad610fe525bcc3b12bfeb6ce07c340da61ad5c6c057a349cf
+  patient_http-sidekiq (1.1.0) sha256=09f1db1365de511e42a1b7f67c964f679a029e1b84ceb14c80ec24609b54dbbd
   patient_llm (0.5.0)
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
-  prompt_builder (0.2.0)
+  prompt_builder (0.2.0) sha256=74deef49ff33046b50d86d08c0fad41a57a744e06e4b18e176a299694a8fc34a
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.62.2) sha256=e1c1f2f56029c1af8c4e2b8a67d0d096c76620f3afd8d99d1dcd2f6b8ffa773b
   protocol-http1 (0.39.0) sha256=e49b3f4cda6f5d94c76a323d2b7f6977cba3ebd082d2da437039594da77ad8eb

@@ -1,18 +1,4 @@
 PATH
-  remote: ../patient_http
-  specs:
-    patient_http (1.3.0)
-      async (~> 2.0)
-      async-http (~> 0.60)
-      concurrent-ruby (~> 1.2)
-      logger
-
-PATH
-  remote: ../prompt_builder
-  specs:
-    prompt_builder (0.2.0)
-
-PATH
   remote: .
   specs:
     patient_llm (0.5.0)
@@ -49,7 +35,7 @@ GEM
       aws-eventstream (~> 1, >= 1.0.2)
     bigdecimal (4.1.2)
     concurrent-ruby (1.3.7)
-    console (1.36.0)
+    console (1.37.0)
       fiber-annotation
       fiber-local (~> 1.1)
       json
@@ -81,10 +67,16 @@ GEM
     parser (3.3.11.1)
       ast (~> 2.4.1)
       racc
+    patient_http (1.3.0)
+      async (~> 2.0)
+      async-http (~> 0.60)
+      concurrent-ruby (~> 1.2)
+      logger
     pp (0.6.4)
       prettyprint
     prettyprint (0.2.0)
     prism (1.9.0)
+    prompt_builder (0.2.0)
     protocol-hpack (1.5.1)
     protocol-http (0.62.2)
     protocol-http1 (0.39.0)
@@ -173,9 +165,7 @@ DEPENDENCIES
   aws-sigv4
   bundler
   irb
-  patient_http!
   patient_llm!
-  prompt_builder!
   rake
   rspec (~> 3.12, ~> 3.0)
   standard (~> 1.0)
@@ -192,7 +182,7 @@ CHECKSUMS
   aws-sigv4 (1.12.1) sha256=6973ff95cb0fd0dc58ba26e90e9510a2219525d07620c8babeb70ef831826c00
   bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
   concurrent-ruby (1.3.7) sha256=4412caec3a5ea2e5fdc52076724c071a81f2c0593d83b2ac8cbb8ca63b3151b0
-  console (1.36.0) sha256=45599ea906cf80a73d8941f03abf873fe66a6a954e0bac5bc1c01e2cdc406f07
+  console (1.37.0) sha256=8093b286c2595a063849c098594fee5155ecc7967d36f3aa8cbe7569c8f3efd7
   crack (1.0.1) sha256=ff4a10390cd31d66440b7524eb1841874db86201d5b70032028553130b6d4c7e
   diff-lcs (1.6.2) sha256=9ae0d2cba7d4df3075fe8cd8602a8604993efc0dfa934cff568969efb1909962
   erb (6.0.4) sha256=38e3803694be357fe2bfe312487c74beaf9fb4e5beb3e22498952fe1645b95d9
@@ -212,12 +202,12 @@ CHECKSUMS
   metrics (0.15.0) sha256=61ded5bac95118e995b1bc9ed4a5f19bc9814928a312a85b200abbdac9039072
   parallel (2.1.0) sha256=b35258865c2e31134c5ecb708beaaf6772adf9d5efae28e93e99260877b09356
   parser (3.3.11.1) sha256=d17ace7aabe3e72c3cc94043714be27cc6f852f104d81aa284c2281aecc65d54
-  patient_http (1.3.0)
+  patient_http (1.3.0) sha256=b43f816f638e956ad610fe525bcc3b12bfeb6ce07c340da61ad5c6c057a349cf
   patient_llm (0.5.0)
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
-  prompt_builder (0.2.0)
+  prompt_builder (0.2.0) sha256=74deef49ff33046b50d86d08c0fad41a57a744e06e4b18e176a299694a8fc34a
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.62.2) sha256=e1c1f2f56029c1af8c4e2b8a67d0d096c76620f3afd8d99d1dcd2f6b8ffa773b
   protocol-http1 (0.39.0) sha256=e49b3f4cda6f5d94c76a323d2b7f6977cba3ebd082d2da437039594da77ad8eb
