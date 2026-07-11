@@ -437,4 +437,37 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.recorded[:failed].error).to be_a(PatientHttp::Error)
     end
   end
+
+  describe "default failed hook" do
+    it "re-raises the error so unhandled failures are not silently lost" do
+      with_fake_handler do |captured|
+        TestPlainAgent.ask("hi")
+
+        error = PatientHttp::RequestError.new(
+          class_name: "Timeout::Error",
+          message: "timed out",
+          backtrace: [],
+          error_type: :timeout,
+          duration: 1.0,
+          request_id: "req-1",
+          url: "https://api.openai.com/v1/chat/completions",
+          http_method: :post,
+          callback_args: captured.first[:callback_args]
+        )
+
+        expect {
+          PatientLLM::Callback.new.on_error(error)
+        }.to raise_error(PatientHttp::RequestError, "timed out")
+      end
+    end
+
+    it "does not raise on its own during inline capture so ask! surfaces the original error once" do
+      stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .to_return(status: 500, body: "oops")
+
+      expect {
+        TestPlainAgent.ask!("hi")
+      }.to raise_error(PatientHttp::HttpError)
+    end
+  end
 end

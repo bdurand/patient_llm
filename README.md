@@ -169,7 +169,7 @@ PatientHttp::Sidekiq.configure do |config|
 end
 ```
 
-`credentials:` is required and accepts a credential chain (anything responding to `resolve`, like `Aws::CredentialProviderChain`; resolved lazily on the first request), a credentials provider (responding to `credentials`), or a static credentials object (responding to `access_key_id` and `secret_access_key`, like `Aws::Credentials`). The signing `service:` and `region:` can be passed explicitly; when omitted they are derived from each request's URL host for standard `<service>.<region>.amazonaws.com` endpoints (`bedrock-runtime.us-east-1.amazonaws.com` signs as service `"bedrock"` in region `"us-east-1"`).
+`credentials:` is required and accepts a credential chain (anything responding to `resolve`, like `Aws::CredentialProviderChain`; resolved lazily on the first request), a credentials provider (responding to `credentials`), or a static credentials object (responding to `access_key_id` and `secret_access_key`, like `Aws::Credentials`). The signing `service:` and `region:` can be passed explicitly; when omitted they are derived from each request's URL host for standard `<service>.<region>` AWS endpoints, including dual-stack `api.aws` hosts (`bedrock-runtime.us-east-1.amazonaws.com` and `bedrock-mantle.us-east-1.api.aws` both sign as service `"bedrock"` in region `"us-east-1"`).
 
 The signer needs the [aws-sigv4](https://rubygems.org/gems/aws-sigv4) gem, which is not a dependency of this gem — add it to your bundle (it is included with `aws-sdk-core`, which also provides the credential chain).
 

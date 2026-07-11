@@ -216,7 +216,7 @@ module PatientLLM
 
       halt = nil
       llm_response.tool_calls.each do |function_call|
-        result, halted = execute_tool(function_call, user_callback)
+        result, halted = execute_tool(function_call, user_callback, callback_args)
         halt = halted if halted
 
         session.add_item(
@@ -271,13 +271,13 @@ module PatientLLM
       )
     end
 
-    def execute_tool(function_call, user_callback)
+    def execute_tool(function_call, user_callback, callback_args)
       name = function_call.name
       args = function_call.parsed_arguments
 
       result =
         if callback_handles_tool?(user_callback, name)
-          user_callback.invoke_tool(name, args)
+          invoke_callback_tool(user_callback, name, args, callback_args)
         else
           PromptBuilder.tool_registry.invoke(name, args)
         end
@@ -288,6 +288,21 @@ module PatientLLM
       [e.message, nil]
     rescue => e
       ["Error executing tool #{function_call.name}: #{e.class}: #{e.message}", nil]
+    end
+
+    # Invoke a tool handled by the user callback, passing the user callback
+    # args when the invoke_tool implementation accepts a callback_args keyword
+    # (as {Agent} does, to expose the context to tool methods).
+    def invoke_callback_tool(user_callback, name, args, callback_args)
+      accepts_callback_args = user_callback.method(:invoke_tool).parameters.any? do |type, param_name|
+        type == :keyrest || ((type == :key || type == :keyreq) && param_name == :callback_args)
+      end
+
+      if accepts_callback_args
+        user_callback.invoke_tool(name, args, callback_args: user_callback_args(callback_args))
+      else
+        user_callback.invoke_tool(name, args)
+      end
     end
 
     def format_result(result)
