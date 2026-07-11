@@ -69,6 +69,43 @@ RSpec.describe PatientLLM::AwsRequestSigner do
       expect(request.headers["x-amz-content-sha256"]).to match(/\A\h{64}\z/)
     end
 
+    it "does not merge the signed host header back onto the request" do
+      signer = described_class.new(credentials: static_credentials, service: "bedrock", region: "us-east-1")
+      request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
+
+      signer.call(request)
+
+      expect(request.headers["host"]).to be_nil
+      expect(request.headers["authorization"][/SignedHeaders=([^,]+)/, 1]).to include("host")
+    end
+
+    it "signs only the whitelisted headers by default" do
+      signer = described_class.new(credentials: static_credentials, service: "bedrock", region: "us-east-1")
+      request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
+      request.headers["anthropic-version"] = "2023-06-01"
+      request.headers["x-request-id"] = "abc-123"
+      request.headers["user-agent"] = "Test/1.0"
+
+      signer.call(request)
+
+      signed_headers = request.headers["authorization"][/SignedHeaders=([^,]+)/, 1].split(";")
+      expect(signed_headers).to include("content-type", "anthropic-version")
+      expect(signed_headers).not_to include("x-request-id", "user-agent")
+    end
+
+    it "honors a custom signed_headers list" do
+      signer = described_class.new(credentials: static_credentials, service: "bedrock", region: "us-east-1", signed_headers: ["X-Custom-Nonce"])
+      request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
+      request.headers["x-request-id"] = "abc-123"
+      request.headers["x-custom-nonce"] = "42"
+
+      signer.call(request)
+
+      signed_headers = request.headers["authorization"][/SignedHeaders=([^,]+)/, 1].split(";")
+      expect(signed_headers).to include("x-custom-nonce")
+      expect(signed_headers).not_to include("content-type", "x-request-id")
+    end
+
     it "signs with credentials from a credentials provider" do
       signer = described_class.new(credentials: credentials_provider, service: "bedrock", region: "us-east-1")
       request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
@@ -138,6 +175,42 @@ RSpec.describe PatientLLM::AwsRequestSigner do
         signer.call(request)
 
         expect(request.headers["authorization"]).to include("/us-east-1/bedrock/aws4_request")
+      end
+
+      it "maps the bedrock-agent-runtime host label to the bedrock signing name" do
+        signer = described_class.new(credentials: static_credentials)
+        request = outgoing_request("https://bedrock-agent-runtime.us-west-2.amazonaws.com/agents/my-agent/invoke")
+
+        signer.call(request)
+
+        expect(request.headers["authorization"]).to include("/us-west-2/bedrock/aws4_request")
+      end
+
+      it "signs bedrock-mantle hosts with the bedrock-mantle service name" do
+        signer = described_class.new(credentials: static_credentials)
+        request = outgoing_request("https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages")
+
+        signer.call(request)
+
+        expect(request.headers["authorization"]).to include("/us-east-1/bedrock-mantle/aws4_request")
+      end
+
+      it "derives from dual-stack api.aws endpoint hosts" do
+        signer = described_class.new(credentials: static_credentials)
+        request = outgoing_request("https://lambda.us-west-2.api.aws/some/path")
+
+        signer.call(request)
+
+        expect(request.headers["authorization"]).to include("/us-west-2/lambda/aws4_request")
+      end
+
+      it "derives from China partition endpoint hosts" do
+        signer = described_class.new(credentials: static_credentials)
+        request = outgoing_request("https://bedrock-runtime.cn-north-1.amazonaws.com.cn/model/my-model/converse")
+
+        signer.call(request)
+
+        expect(request.headers["authorization"]).to include("/cn-north-1/bedrock/aws4_request")
       end
 
       it "strips a -fips suffix from the service label" do

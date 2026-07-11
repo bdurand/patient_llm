@@ -338,7 +338,6 @@ module PatientLLM
     def prepare(session: nil, provider: nil, callback_args: nil, http_response: nil, request_id: nil)
       @session = session
       @provider = provider
-      @callback_context = PatientHttp::CallbackArgs.new((callback_args && callback_args[:context]) || {})
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
@@ -353,7 +352,7 @@ module PatientLLM
         output_schema: self.class.output_schema,
         http_response: http_response,
         http_request_id: http_response&.request_id,
-        context: @callback_context
+        context: extract_context(callback_args)
       )
       capture_result(:response, response)
       completed(response)
@@ -370,7 +369,7 @@ module PatientLLM
         session: session,
         http_response: http_response,
         http_request_id: http_response&.request_id,
-        context: @callback_context
+        context: extract_context(callback_args)
       )
       tool_round(response)
     end
@@ -388,7 +387,7 @@ module PatientLLM
         session: session,
         http_response: http_response,
         http_request_id: http_request_id,
-        context: @callback_context
+        context: extract_context(callback_args)
       )
       capture_result(:error, error)
       failed(failure)
@@ -404,14 +403,15 @@ module PatientLLM
 
     # Plumbing: invoke the tool's instance method with the LLM-provided
     # arguments as keywords. A tool method that declares a `context:` keyword
-    # also receives the context passed to ask/continue.
+    # also receives the context passed to ask/continue, extracted from the
+    # callback args supplied by {Callback}.
     #
     # @api private
-    def invoke_tool(name, arguments)
+    def invoke_tool(name, arguments, callback_args: nil)
       raise ArgumentError, "#{self.class} does not handle tool #{name.inspect}" unless handles_tool?(name)
 
       kwargs = (arguments || {}).transform_keys(&:to_sym)
-      kwargs[:context] = @callback_context if tool_accepts_context?(name)
+      kwargs[:context] = extract_context(callback_args) if tool_accepts_context?(name)
       public_send(name.to_sym, **kwargs)
     end
 
@@ -424,12 +424,19 @@ module PatientLLM
     def completed(response)
     end
 
-    # Hook: invoked when a request fails. Override in your agent.
+    # Hook: invoked when a request fails. Override in your agent. The default
+    # implementation re-raises the error so unhandled failures are never
+    # silently lost — under a job system this fails the callback job, making
+    # the error visible to its retry and error reporting. During inline
+    # execution the raise is skipped because ask! raises the captured error
+    # itself (raising here as well would make the executor invoke the error
+    # callback a second time with a wrapped error).
     #
     # @param failure [Agent::Failure] the failure; exposes the error along
     #   with the session, HTTP exchange, and context
     # @return [void]
     def failed(failure)
+      raise failure.error unless Thread.current.thread_variable_get(:patient_llm_agent_capture)
     end
 
     # Hook: invoked once per automatic tool round, after the tools run and
@@ -442,6 +449,11 @@ module PatientLLM
     end
 
     private
+
+    # The context passed to ask/continue, as stored in the callback args.
+    def extract_context(callback_args)
+      PatientHttp::CallbackArgs.new((callback_args && callback_args[:context]) || {})
+    end
 
     def tool_accepts_context?(name)
       method(name.to_sym).parameters.any? do |type, param_name|
