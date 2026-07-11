@@ -142,6 +142,20 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.model).to eq("gpt-4")
     end
 
+    it "deep copies declarations so mutating a subclass's does not alter the parent's" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "MutatingTripAgent"
+        end
+      end
+
+      subclass.tools["weather"][:description] = "changed"
+      subclass.tools["weather"][:parameters]["properties"]["city"]["description"] = "changed"
+
+      expect(TestTripAgent.tools["weather"][:description]).to eq("Get the weather for a city")
+      expect(TestTripAgent.tools["weather"][:parameters]["properties"]["city"]["description"]).to eq("City name")
+    end
+
     it "raises when a subclass redefines a plumbing method" do
       expect {
         Class.new(PatientLLM::Agent) do

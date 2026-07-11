@@ -63,6 +63,7 @@ module PatientLLM
       @credentials = credentials
       @service = service
       @region = region
+      @signer = nil
       @resolved_provider = nil
       @mutex = Mutex.new
     end
@@ -85,11 +86,17 @@ module PatientLLM
 
     private
 
+    # The signer can only be cached when both the service and region are fixed
+    # at construction time; otherwise they depend on each request's URL host.
     def signer(url)
+      return @signer if @signer
+
       host = URI.parse(url).host
       service, region = resolve_service_and_region(host)
 
-      Aws::Sigv4::Signer.new(service: service, region: region, **credentials_options)
+      signer = Aws::Sigv4::Signer.new(service: service, region: region, **credentials_options)
+      @signer = signer if @service && @region
+      signer
     end
 
     def resolve_service_and_region(host)

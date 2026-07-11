@@ -35,6 +35,8 @@ module PatientLLM
         auth_header: "x-goog-api-key",
         auth_format: "%s"
       },
+      # Bedrock's bearer auth is for Amazon Bedrock API keys; SigV4 signing is
+      # available instead via the :aws_sigv4 preprocessor (see AwsRequestSigner).
       bedrock: {
         url: "https://bedrock-runtime.%{region}.amazonaws.com",
         serializer: :converse,

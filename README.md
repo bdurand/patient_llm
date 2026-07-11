@@ -114,6 +114,8 @@ end
 
 The `api_key` is registered as a PatientHttp secret named `patient_llm.<provider>.api_key` and referenced from the provider's authentication header. The key value is resolved on the processor side at dispatch time and is **never serialized** into job payloads. Prefer a lambda (resolved lazily, supports rotation); a plain String also works.
 
+Bedrock supports two authentication styles: pass `api_key:` with an [Amazon Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html) (sent as a bearer token), or sign requests with IAM credentials using SigV4 as shown above — see [request signing](#request-signing-preprocessors).
+
 Every preset value can be overridden, so pointing a preset at a proxy or gateway is one keyword:
 
 ```ruby

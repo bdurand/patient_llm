@@ -302,8 +302,18 @@ module PatientLLM
           value = instance_variable_get(:"@#{setting}")
           next if value.nil?
 
-          value = value.dup if value.is_a?(Hash)
-          subclass.instance_variable_set(:"@#{setting}", value)
+          subclass.instance_variable_set(:"@#{setting}", deep_dup(value))
+        end
+      end
+
+      def deep_dup(value)
+        case value
+        when Hash
+          value.transform_values { |element| deep_dup(element) }
+        when Array
+          value.map { |element| deep_dup(element) }
+        else
+          value
         end
       end
 

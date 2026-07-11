@@ -90,6 +90,29 @@ RSpec.describe PatientLLM::AwsRequestSigner do
       end
     end
 
+    it "builds the SigV4 signer once when the service and region are explicit" do
+      signer = described_class.new(credentials: static_credentials, service: "bedrock", region: "us-east-1")
+      expect(Aws::Sigv4::Signer).to receive(:new).once.and_call_original
+
+      2.times do
+        request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
+        signer.call(request)
+        expect(request.headers["authorization"]).to include("/us-east-1/bedrock/aws4_request")
+      end
+    end
+
+    it "builds a SigV4 signer per request when the service or region is derived from the host" do
+      signer = described_class.new(credentials: static_credentials)
+
+      request = outgoing_request("https://bedrock-runtime.us-east-1.amazonaws.com/model/my-model/converse")
+      signer.call(request)
+      expect(request.headers["authorization"]).to include("/us-east-1/bedrock/aws4_request")
+
+      request = outgoing_request("https://bedrock-runtime.eu-west-1.amazonaws.com/model/my-model/converse")
+      signer.call(request)
+      expect(request.headers["authorization"]).to include("/eu-west-1/bedrock/aws4_request")
+    end
+
     it "raises when the credential chain does not resolve any credentials" do
       chain = double(resolve: nil)
       signer = described_class.new(credentials: chain, service: "bedrock", region: "us-east-1")
