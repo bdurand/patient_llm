@@ -43,12 +43,12 @@ module PatientLLM
     # into requests; only the secret name travels with them.
     #
     # @param name [Symbol, String] Provider name
-    # @param preset [Symbol, nil] Built-in preset name (:openai, :anthropic, :gemini, :bedrock)
+    # @param preset [Symbol, nil] Built-in preset name (:openai, :anthropic, :gemini, :bedrock_runtime)
     # @param url [String, nil] Base URL for the provider API (required unless supplied by the preset)
     # @param api_key [Proc, String, PatientHttp::SecretReference, nil] The API key for the provider.
     #   A Proc is resolved at dispatch time (preferred). A String is captured into the secret
     #   registry and never serialized. A SecretReference uses your own registered secret as-is.
-    # @param region [String, nil] Region for presets with region-based URLs (e.g. :bedrock)
+    # @param region [String, nil] Region for presets with region-based URLs (e.g. :bedrock_runtime)
     # @param headers [Hash, nil] Default headers for requests (merged over preset headers)
     # @param serializer [Symbol, nil] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
     # @param path [String, nil] Override the default endpoint path

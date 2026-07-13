@@ -12,7 +12,7 @@ module PatientLLM
   # @example
   #   PatientLLM.configure do |config|
   #     config.provider :anthropic, preset: :anthropic, api_key: -> { ENV["ANTHROPIC_API_KEY"] }
-  #     config.provider :bedrock, preset: :bedrock, region: "us-east-1", preprocessors: :aws_sigv4
+  #     config.provider :bedrock, preset: :bedrock_runtime, region: "us-east-1", preprocessors: :aws_sigv4
   #   end
   module Presets
     TABLE = {
@@ -37,10 +37,9 @@ module PatientLLM
       },
       # Bedrock's bearer auth is for Amazon Bedrock API keys; SigV4 signing is
       # available instead via the :aws_sigv4 preprocessor (see AwsRequestSigner).
-      bedrock: {
+      bedrock_runtime: {
         url: "https://bedrock-runtime.%{region}.amazonaws.com",
         serializer: :converse,
-        path: "model/{model}/converse",
         auth_header: "authorization",
         auth_format: "Bearer %s",
         requires_region: true

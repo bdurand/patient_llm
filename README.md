@@ -105,10 +105,10 @@ Presets bundle the vendor-specific details — base URL, API format, authenticat
 
 ```ruby
 PatientLLM.configure do |config|
-  config.provider :openai,    preset: :openai,    api_key: -> { ENV["OPENAI_API_KEY"] }
+  config.provider :openai, preset: :openai, api_key: -> { ENV["OPENAI_API_KEY"] }
   config.provider :anthropic, preset: :anthropic, api_key: -> { ENV["ANTHROPIC_API_KEY"] }
-  config.provider :gemini,    preset: :gemini,    api_key: -> { ENV["GEMINI_API_KEY"] }
-  config.provider :bedrock,   preset: :bedrock,   region: "us-east-1", preprocessors: :aws_sigv4
+  config.provider :gemini, preset: :gemini, api_key: -> { ENV["GEMINI_API_KEY"] }
+  config.provider :bedrock, preset: :bedrock_runtime, region: "us-east-1", preprocessors: :aws_sigv4
 end
 ```
 
@@ -159,7 +159,7 @@ For SigV4, `PatientLLM::AwsRequestSigner` is a ready-made callable that can be r
 
 ```ruby
 PatientLLM.configure do |config|
-  config.provider :bedrock, preset: :bedrock, region: "us-east-1", preprocessors: :aws_sigv4
+  config.provider :bedrock, preset: :bedrock_runtime, region: "us-east-1", preprocessors: :aws_sigv4
 end
 
 PatientHttp::Sidekiq.configure do |config|
@@ -395,7 +395,7 @@ Or register the PatientHttp inline handler globally for a console or test proces
 
 ### URL composition
 
-The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `path`. When you don't set `path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time. If your base URL already includes a `/v1` prefix, override the path to avoid duplication:
+The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `path`. When you don't set `path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `model/{model}/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time. If your base URL already includes a `/v1` prefix, override the path to avoid duplication:
 
 ```ruby
 PatientLLM.ask(session,

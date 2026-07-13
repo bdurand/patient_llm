@@ -27,7 +27,7 @@ module PatientLLM
     chat_completion: "v1/chat/completions",
     open_responses: "v1/responses",
     messages: "v1/messages",
-    converse: "converse",
+    converse: "model/{model}/converse",
     gemini: "v1beta/models/{model}:generateContent"
   }.freeze
 

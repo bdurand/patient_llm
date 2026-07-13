@@ -35,9 +35,9 @@ PatientLLM.configure do |config|
     if name == "bedrock"
       region = ENV.fetch("BEDROCK_REGION", "us-east-1")
       if PremiumProviders.bedrock_sigv4?
-        config.provider :bedrock, preset: :bedrock, region: region, preprocessors: :aws_sigv4
+        config.provider :bedrock, preset: :bedrock_runtime, region: region, preprocessors: :aws_sigv4
       else
-        config.provider :bedrock, preset: :bedrock, region: region, api_key: PremiumProviders.api_key(name)
+        config.provider :bedrock, preset: :bedrock_runtime, region: region, api_key: PremiumProviders.api_key(name)
       end
     else
       config.provider name.to_sym, preset: name.to_sym, api_key: PremiumProviders.api_key(name)

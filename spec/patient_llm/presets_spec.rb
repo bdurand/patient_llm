@@ -39,18 +39,17 @@ RSpec.describe PatientLLM::Presets do
     end
 
     it "fills the bedrock preset URL from the region" do
-      config.provider :bedrock, preset: :bedrock, region: "us-west-2", preprocessors: :aws_sigv4
+      config.provider :bedrock, preset: :bedrock_runtime, region: "us-west-2", preprocessors: :aws_sigv4
 
       result = config.lookup(:bedrock)
       expect(result[:url]).to eq("https://bedrock-runtime.us-west-2.amazonaws.com")
       expect(result[:serializer]).to eq(:converse)
-      expect(result[:path]).to eq("model/{model}/converse")
       expect(result[:preprocessors]).to eq(:aws_sigv4)
     end
 
     it "raises when the bedrock preset is used without a region" do
       expect {
-        config.provider :bedrock, preset: :bedrock
+        config.provider :bedrock, preset: :bedrock_runtime
       }.to raise_error(ArgumentError, /region/)
     end
 
