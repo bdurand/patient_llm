@@ -61,7 +61,7 @@ class ChatAction
 
     # Apply settings
     if params["system_prompt"] && !params["system_prompt"].empty?
-      session.instructions = params["system_prompt"] || "You are a helpful assistant."
+      session.system = params["system_prompt"] || "You are a helpful assistant."
     end
 
     thinking_enabled = params["thinking_enabled"]

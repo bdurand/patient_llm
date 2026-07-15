@@ -12,7 +12,7 @@ module PatientLLM
   #   class TripPlannerAgent < PatientLLM::Agent
   #     provider :openai
   #     model "gpt-5"
-  #     instructions "You are a travel assistant. Be concise."
+  #     system "You are a travel assistant. Be concise."
   #     temperature 0.3
   #     max_tool_iterations 5
   #
@@ -51,7 +51,7 @@ module PatientLLM
     PLUMBING_METHODS = %i[on_complete on_tool_use on_error prepare handles_tool? invoke_tool].freeze
 
     # Declarations copied down to subclasses by the inherited hook.
-    INHERITED_SETTINGS = %i[provider model instructions temperature reasoning max_output_tokens max_tool_iterations tools output_schema].freeze
+    INHERITED_SETTINGS = %i[provider model system temperature reasoning max_output_tokens max_tool_iterations tools output_schema].freeze
 
     class << self
       # DSL: get or set the provider name for this agent.
@@ -72,13 +72,13 @@ module PatientLLM
         @model
       end
 
-      # DSL: get or set the system instructions.
+      # DSL: get or set the system message.
       #
       # @param value [String, nil]
       # @return [String, nil]
-      def instructions(value = nil)
-        @instructions = value unless value.nil?
-        @instructions
+      def system(value = nil)
+        @system = value unless value.nil?
+        @system
       end
 
       # DSL: get or set the sampling temperature.
@@ -188,10 +188,13 @@ module PatientLLM
       #   max_tool_iterations:)
       # @return [Object] handler-specific identifier for the enqueued request
       def ask(message = nil, context: {}, session: nil, **options)
-        session ||= build_session
+        session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
+
+        session ||= build_session(**session_options)
         session.user(message) if message
 
-        ask_options = {}
+        ask_options = options.reject { |key, _| PromptBuilder::Session::INITIALIZE_OPTIONS.include?(key) }
         ask_options[:max_tool_iterations] = max_tool_iterations if max_tool_iterations
 
         PatientLLM.ask(
@@ -199,7 +202,7 @@ module PatientLLM
           provider: provider_name!,
           callback: self,
           callback_args: {"context" => PromptBuilder.jsonify(context || {})},
-          **ask_options.merge(options)
+          **ask_options
         )
       end
 
@@ -250,11 +253,10 @@ module PatientLLM
       # Build a new session from the agent's declarations.
       #
       # @return [PromptBuilder::Session]
-      def build_session
-        raise ArgumentError, "#{self} must declare a model" unless model
-
-        session = PromptBuilder::Session.new(model: model)
+      def build_session(**options)
+        session = PromptBuilder::Session.new(**options)
         apply_configuration(session)
+        session.model ||= model
         session
       end
 
@@ -264,7 +266,7 @@ module PatientLLM
       # @param session [PromptBuilder::Session]
       # @return [PromptBuilder::Session]
       def apply_configuration(session)
-        session.instructions = instructions if instructions
+        session.system(system) if system
         session.temperature = temperature if temperature
         session.max_output_tokens = max_output_tokens if max_output_tokens
         session.think(**reasoning.transform_keys(&:to_sym)) if reasoning

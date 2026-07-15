@@ -5,7 +5,7 @@ require "spec_helper"
 class TestTripAgent < PatientLLM::Agent
   provider :openai
   model "gpt-4"
-  instructions "You are a travel assistant."
+  system "You are a travel assistant."
   temperature 0.3
   max_output_tokens 500
   max_tool_iterations 5
@@ -110,7 +110,7 @@ RSpec.describe PatientLLM::Agent do
     it "exposes the declared settings" do
       expect(TestTripAgent.provider).to eq(:openai)
       expect(TestTripAgent.model).to eq("gpt-4")
-      expect(TestTripAgent.instructions).to eq("You are a travel assistant.")
+      expect(TestTripAgent.system).to eq("You are a travel assistant.")
       expect(TestTripAgent.temperature).to eq(0.3)
       expect(TestTripAgent.max_output_tokens).to eq(500)
       expect(TestTripAgent.max_tool_iterations).to eq(5)
@@ -171,7 +171,8 @@ RSpec.describe PatientLLM::Agent do
       session = TestTripAgent.build_session
 
       expect(session.model).to eq("gpt-4")
-      expect(session.instructions).to eq("You are a travel assistant.")
+      system_messages = session.items.select { |item| item.role == "system" }
+      expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
       expect(session.temperature).to eq(0.3)
       expect(session.max_output_tokens).to eq(500)
       expect(session.text.dig("format", "type")).to eq("json_schema")
@@ -188,17 +189,6 @@ RSpec.describe PatientLLM::Agent do
 
       session = agent.build_session
       expect(session.reasoning).to eq({"effort" => "medium"})
-    end
-
-    it "raises without a model" do
-      agent = Class.new(PatientLLM::Agent) do
-        def self.name
-          "ModellessAgent"
-        end
-        provider :openai
-      end
-
-      expect { agent.build_session }.to raise_error(ArgumentError, /must declare a model/)
     end
   end
 
@@ -245,10 +235,11 @@ RSpec.describe PatientLLM::Agent do
 
         session_hash = captured.first[:callback_args][:session]
         session = PromptBuilder::Session.from_h(session_hash)
-        expect(session.instructions).to eq("You are a travel assistant.")
+        system_messages = session.items.select { |item| item.role == "system" }
+        expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
         expect(session.tool_definitions.map(&:name)).to eq(["weather"])
-        texts = session.items.select { |i| i.is_a?(PromptBuilder::Items::Message) }.map { |m| m.content.first.text }
-        expect(texts).to eq(["First message", "Make it kid-friendly"])
+        texts = session.items.select { |item| item.role == "user" }
+        expect(texts.map { |m| m.content.first.text }).to eq(["First message", "Make it kid-friendly"])
       end
     end
   end

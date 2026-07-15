@@ -30,7 +30,7 @@ Define an agent:
 class TripPlannerAgent < PatientLLM::Agent
   provider :anthropic
   model "claude-sonnet-4-5"
-  instructions "You are a travel assistant. Be concise."
+  system "You are a travel assistant. Be concise."
   max_output_tokens 2_000
 
   tool :weather, "Get the weather forecast for a city" do
@@ -185,7 +185,7 @@ Multiple preprocessors can be given as an array; they run in order at dispatch t
 class ResearchAgent < PatientLLM::Agent
   provider :openai              # a registered provider name
   model "gpt-5"
-  instructions "You are a research assistant."
+  system "You are a research assistant."
   temperature 0.2
   max_output_tokens 4_000
   reasoning :medium             # portable effort level, or reasoning budget_tokens: 8_000
@@ -264,7 +264,7 @@ end
 ResearchAgent.continue(conversation.state, "Tell me more about that", context: {conversation_id: conversation.id})
 ```
 
-`continue` re-applies the agent's *current* instructions, tools, and output schema to the restored session, so deploying changes to an agent cleanly affects older conversations.
+`continue` re-applies the agent's *current* system, tools, and output schema to the restored session, so deploying changes to an agent cleanly affects older conversations.
 
 ### Inline execution
 
@@ -325,7 +325,7 @@ Create a `PromptBuilder::Session` and call `PatientLLM.ask` to make an async req
 
 ```ruby
 session = PromptBuilder::Session.new(model: "gpt-4o")
-session.instructions = "You are a helpful assistant."
+session.system = "You are a helpful assistant."
 session.user("What is the capital of France?")
 
 PatientLLM.ask(session, provider: :openai, callback: LLMCallback, callback_args: {
