@@ -47,10 +47,11 @@ RSpec.describe PatientLLM::Presets do
       expect(result[:preprocessors]).to eq(:aws_sigv4)
     end
 
-    it "raises when the bedrock preset is used without a region" do
-      expect {
-        config.provider :bedrock, preset: :bedrock_runtime
-      }.to raise_error(ArgumentError, /region/)
+    it "returns nil when the bedrock preset is used without a region" do
+      config.provider :bedrock, preset: :bedrock_runtime
+
+      result = config.lookup(:bedrock)
+      expect(result[:url]).to be_nil
     end
 
     it "raises for an unknown preset" do
@@ -136,12 +137,6 @@ RSpec.describe PatientLLM::Presets do
       result = config.lookup(:tuned)
       expect(result[:timeout]).to eq(300)
       expect(result[:max_tool_iterations]).to eq(25)
-    end
-
-    it "requires a url when no preset supplies one" do
-      expect {
-        config.provider :missing
-      }.to raise_error(ArgumentError, /url is required/)
     end
   end
 end

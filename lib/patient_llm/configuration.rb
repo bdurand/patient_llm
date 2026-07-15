@@ -64,7 +64,6 @@ module PatientLLM
       preset_config = preset ? Presets.fetch(preset) : {}
 
       resolved_url = url || (preset ? Presets.url(preset_config, region: region) : nil)
-      raise ArgumentError, "A url is required. Pass url: or use a preset that provides one." unless resolved_url
 
       resolved_serializer = (serializer || preset_config[:serializer] || :chat_completion).to_sym
       unless PatientLLM::VALID_SERIALIZERS.include?(resolved_serializer)

@@ -61,11 +61,11 @@ module PatientLLM
       #
       # @param preset [Hash] a preset row from {TABLE}
       # @param region [String, nil] the region for region-templated URLs
-      # @return [String] the resolved base URL
-      # @raise [ArgumentError] if the preset requires a region and none is given
+      # @return [String, nil] the resolved base URL or nil if the region is required but not provided
       def url(preset, region: nil)
         if preset[:requires_region]
-          raise ArgumentError, "This preset requires a region: (e.g. \"us-east-1\")" if region.nil?
+          return nil if region.nil?
+
           format(preset[:url], region: region)
         else
           preset[:url]

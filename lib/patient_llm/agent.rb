@@ -195,7 +195,7 @@ module PatientLLM
         session.user(message) if message
 
         ask_options = options.reject { |key, _| PromptBuilder::Session::INITIALIZE_OPTIONS.include?(key) }
-        ask_options[:max_tool_iterations] = max_tool_iterations if max_tool_iterations
+        ask_options[:max_tool_iterations] ||= max_tool_iterations if max_tool_iterations
 
         PatientLLM.ask(
           session,
