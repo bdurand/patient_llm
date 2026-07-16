@@ -149,7 +149,7 @@ class ChatAction
       allowed_tools = params["allowed_tools"]
       if allowed_tools.is_a?(Array) && !allowed_tools.empty?
         known_tools = allowed_tools.select { |name| PromptBuilder.tool_registry.definition_for(name) }
-        session.use_tools(*known_tools)
+        session.use_tools(*known_tools) unless known_tools.empty?
       else
         session.use_tools
       end
