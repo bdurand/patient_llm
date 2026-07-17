@@ -186,12 +186,43 @@ class ResearchAgent < PatientLLM::Agent
   provider :openai              # a registered provider name
   model "gpt-5"
   system "You are a research assistant."
+  instructions "Cite your sources."
   temperature 0.2
   max_output_tokens 4_000
   reasoning :medium             # portable effort level, or reasoning budget_tokens: 8_000
   max_tool_iterations 5         # tool loop cap for this agent (default 10)
 end
 ```
+
+`instructions` sets system-level instructions for the request. On APIs without a separate instructions field they are appended to the system prompt.
+
+### Inheritance
+
+Subclasses inherit every declaration from their parent agent class, including tools and the output schema — so a base agent can hold shared configuration while subclasses specialize. Inheritance is live: getters fall back to the parent class, so declarations added to the parent later are visible to existing subclasses.
+
+Override a setting by redeclaring it, or remove an inherited setting by passing an explicit `nil`:
+
+```ruby
+class BaseAgent < PatientLLM::Agent
+  provider :openai
+  model "gpt-5"
+  temperature 0.2
+
+  tool :search, "Search the knowledge base" do
+    param :query, :string, required: true
+  end
+end
+
+class CreativeAgent < BaseAgent
+  temperature 0.9     # override
+end
+
+class DefaultTemperatureAgent < BaseAgent
+  temperature nil     # remove: use the provider's default temperature
+end
+```
+
+Tools merge by name — redeclaring a tool in a subclass replaces the inherited declaration for that subclass only.
 
 ### Tools
 

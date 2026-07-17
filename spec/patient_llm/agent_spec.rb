@@ -6,6 +6,7 @@ class TestTripAgent < PatientLLM::Agent
   provider :openai
   model "gpt-4"
   system "You are a travel assistant."
+  instructions "Answer in one paragraph."
   temperature 0.3
   max_output_tokens 500
   max_tool_iterations 5
@@ -111,6 +112,7 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.provider).to eq(:openai)
       expect(TestTripAgent.model).to eq("gpt-4")
       expect(TestTripAgent.system).to eq("You are a travel assistant.")
+      expect(TestTripAgent.instructions).to eq("Answer in one paragraph.")
       expect(TestTripAgent.temperature).to eq(0.3)
       expect(TestTripAgent.max_output_tokens).to eq(500)
       expect(TestTripAgent.max_tool_iterations).to eq(5)
@@ -128,7 +130,7 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.output_schema[:schema]["properties"].keys).to contain_exactly("summary", "packing_list")
     end
 
-    it "copies declarations to subclasses which can override them" do
+    it "inherits declarations in subclasses which can override them" do
       subclass = Class.new(TestTripAgent) do
         def self.name
           "SpecializedTripAgent"
@@ -138,11 +140,111 @@ RSpec.describe PatientLLM::Agent do
 
       expect(subclass.model).to eq("gpt-4o")
       expect(subclass.provider).to eq(:openai)
+      expect(subclass.system).to eq("You are a travel assistant.")
+      expect(subclass.instructions).to eq("Answer in one paragraph.")
+      expect(subclass.temperature).to eq(0.3)
+      expect(subclass.max_output_tokens).to eq(500)
+      expect(subclass.max_tool_iterations).to eq(5)
       expect(subclass.tools.keys).to eq(["weather"])
+      expect(subclass.output_schema).to eq(TestTripAgent.output_schema)
       expect(TestTripAgent.model).to eq("gpt-4")
     end
 
-    it "deep copies declarations so mutating a subclass's does not alter the parent's" do
+    it "reflects declarations added to the parent after the subclass is defined" do
+      parent = Class.new(TestPlainAgent) do
+        def self.name
+          "LateParentAgent"
+        end
+      end
+      subclass = Class.new(parent) do
+        def self.name
+          "LateChildAgent"
+        end
+      end
+
+      parent.temperature 0.9
+      parent.tool :lookup, "Look something up" do
+        param :key, :string
+      end
+
+      expect(subclass.temperature).to eq(0.9)
+      expect(subclass.tools.keys).to eq(["lookup"])
+    end
+
+    it "removes an inherited setting when passed an explicit nil" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "StrippedTripAgent"
+        end
+        system nil
+        instructions nil
+        temperature nil
+        max_output_tokens nil
+        max_tool_iterations nil
+      end
+
+      expect(subclass.system).to be_nil
+      expect(subclass.instructions).to be_nil
+      expect(subclass.temperature).to be_nil
+      expect(subclass.max_output_tokens).to be_nil
+      expect(subclass.max_tool_iterations).to be_nil
+      expect(subclass.model).to eq("gpt-4")
+
+      expect(TestTripAgent.system).to eq("You are a travel assistant.")
+      expect(TestTripAgent.temperature).to eq(0.3)
+    end
+
+    it "masks a removed setting from further subclasses" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "NoTemperatureTripAgent"
+        end
+        temperature nil
+      end
+      grandchild = Class.new(subclass) do
+        def self.name
+          "GrandchildTripAgent"
+        end
+      end
+
+      expect(grandchild.temperature).to be_nil
+    end
+
+    it "removes inherited reasoning when passed an explicit nil" do
+      parent = Class.new(TestPlainAgent) do
+        def self.name
+          "ReasoningParentAgent"
+        end
+        reasoning :medium
+      end
+      subclass = Class.new(parent) do
+        def self.name
+          "NoReasoningAgent"
+        end
+        reasoning nil
+      end
+
+      expect(parent.reasoning).to eq({effort: "medium"})
+      expect(subclass.reasoning).to be_nil
+    end
+
+    it "replaces an inherited tool when redeclared in a subclass" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "OverridingTripAgent"
+        end
+        tool :weather, "Get a detailed forecast" do
+          param :city, :string, required: true
+          param :days, :integer
+        end
+      end
+
+      expect(subclass.tools["weather"][:description]).to eq("Get a detailed forecast")
+      expect(subclass.tools["weather"][:parameters]["properties"].keys).to contain_exactly("city", "days")
+      expect(TestTripAgent.tools["weather"][:description]).to eq("Get the weather for a city")
+    end
+
+    it "returns tool declarations as deep copies so mutating them does not alter the agent's" do
       subclass = Class.new(TestTripAgent) do
         def self.name
           "MutatingTripAgent"
@@ -151,6 +253,7 @@ RSpec.describe PatientLLM::Agent do
 
       subclass.tools["weather"][:description] = "changed"
       subclass.tools["weather"][:parameters]["properties"]["city"]["description"] = "changed"
+      TestTripAgent.tools["weather"][:description] = "changed"
 
       expect(TestTripAgent.tools["weather"][:description]).to eq("Get the weather for a city")
       expect(TestTripAgent.tools["weather"][:parameters]["properties"]["city"]["description"]).to eq("City name")
@@ -173,10 +276,45 @@ RSpec.describe PatientLLM::Agent do
       expect(session.model).to eq("gpt-4")
       system_messages = session.items.select { |item| item.role == "system" }
       expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
+      expect(session.instructions).to eq("Answer in one paragraph.")
       expect(session.temperature).to eq(0.3)
       expect(session.max_output_tokens).to eq(500)
       expect(session.text.dig("format", "type")).to eq("json_schema")
       expect(session.tool_definitions.map(&:name)).to eq(["weather"])
+    end
+
+    it "applies inherited declarations from the parent agent class" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "InheritedSessionAgent"
+        end
+      end
+
+      session = subclass.build_session
+
+      expect(session.model).to eq("gpt-4")
+      system_messages = session.items.select { |item| item.role == "system" }
+      expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
+      expect(session.text.dig("format", "type")).to eq("json_schema")
+      expect(session.tool_definitions.map(&:name)).to eq(["weather"])
+    end
+
+    it "does not apply settings removed with an explicit nil" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "RemovedSettingsSessionAgent"
+        end
+        system nil
+        instructions nil
+        temperature nil
+      end
+
+      session = subclass.build_session
+
+      expect(session.items.select { |item| item.role == "system" }).to be_empty
+      expect(session.instructions).to be_nil
+      expect(session.temperature).to be_nil
+      expect(session.max_output_tokens).to eq(500)
     end
 
     it "applies reasoning via think" do

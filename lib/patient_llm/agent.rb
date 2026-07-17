@@ -8,6 +8,11 @@ module PatientLLM
   # so its name is what travels through the job queue — everything else stays
   # in code and is re-resolved in the worker process.
   #
+  # Subclasses inherit every declaration from their parent agent class,
+  # including tools and the output schema. Override a setting by redeclaring
+  # it, or remove an inherited scalar setting by passing an explicit nil
+  # (e.g. `temperature nil`).
+  #
   # @example
   #   class TripPlannerAgent < PatientLLM::Agent
   #     provider :openai
@@ -50,78 +55,135 @@ module PatientLLM
     # override the completed/failed/tool_round hooks instead.
     PLUMBING_METHODS = %i[on_complete on_tool_use on_error prepare handles_tool? invoke_tool].freeze
 
-    # Declarations copied down to subclasses by the inherited hook.
-    INHERITED_SETTINGS = %i[provider model system temperature reasoning max_output_tokens max_tool_iterations tools output_schema].freeze
+    # Sentinel default distinguishing "called as a getter" from an explicit
+    # nil, which removes the value (masking any inherited one).
+    NOT_SPECIFIED = Object.new
+    private_constant :NOT_SPECIFIED
 
     class << self
-      # DSL: get or set the provider name for this agent.
+      # DSL: get or set the provider name for this agent. The value is
+      # inherited from the parent agent class unless set; pass an explicit nil
+      # to remove an inherited value.
       #
-      # @param name [Symbol, String, nil] the registered provider name
+      # @param name [Symbol, String, nil] the registered provider name.
+      #   Passing and explicit nil removes the previously set value.
       # @return [Symbol, nil]
-      def provider(name = nil)
-        @provider = name.to_sym unless name.nil?
-        @provider
+      def provider(name = NOT_SPECIFIED)
+        if name.equal?(NOT_SPECIFIED)
+          inherited_setting(:provider)
+        else
+          @provider = name&.to_sym
+        end
       end
 
-      # DSL: get or set the model.
+      # DSL: get or set the model. The value is inherited from the parent
+      # agent class unless set; pass an explicit nil to remove an inherited value.
       #
-      # @param value [String, nil]
+      # @param value [String, nil] the model name. Passing and explicit nil removes the previously set value.
       # @return [String, nil]
-      def model(value = nil)
-        @model = value unless value.nil?
-        @model
+      def model(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:model)
+        else
+          @model = value
+        end
       end
 
-      # DSL: get or set the system message.
+      # DSL: get or set the system message. The value is inherited from the
+      # parent agent class unless set; pass an explicit nil to remove an
+      # inherited value.
       #
-      # @param value [String, nil]
+      # @param value [String, nil] the system message. Passing and explicit nil removes the previously set value.
       # @return [String, nil]
-      def system(value = nil)
-        @system = value unless value.nil?
-        @system
+      def system(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:system)
+        else
+          @system = value
+        end
       end
 
-      # DSL: get or set the sampling temperature.
+      # DSL: get or set instructions for the last request. These are appended to
+      # the system prompt on APIs that don't support instructions as a separate
+      # field. The value is inherited from the parent agent class unless set;
+      # pass an explicit nil to remove an inherited value.
       #
-      # @param value [Numeric, nil]
+      # @param value [String, nil] the instructions. Passing and explicit nil removes the previously set value.
+      # @return [String, nil]
+      def instructions(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:instructions)
+        else
+          @instructions = value
+        end
+      end
+
+      # DSL: get or set the sampling temperature. The value is inherited from
+      # the parent agent class unless set; pass an explicit nil to remove an
+      # inherited value.
+      #
+      # @param value [Numeric, nil] the temperature. Passing and explicit nil removes the previously set value.
       # @return [Numeric, nil]
-      def temperature(value = nil)
-        @temperature = value unless value.nil?
-        @temperature
+      def temperature(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:temperature)
+        else
+          @temperature = value
+        end
       end
 
       # DSL: get or set the reasoning configuration. Accepts a portable effort
       # level (:minimal, :low, :medium, :high, :xhigh, :max) or explicit options
       # (effort: or budget_tokens:) which are applied with `session.think`.
+      # The value is inherited from the parent agent class unless set; pass an
+      # explicit nil to remove an inherited value.
       #
-      # @param value [Symbol, String, nil] a portable effort level
+      # @param value [Symbol, String, nil] a portable effort level.
+      #   Passing and explicit nil removes the previously set value.
       # @param effort [Symbol, String, nil] explicit effort level
       # @param budget_tokens [Integer, nil] explicit thinking token budget
       # @return [Hash, nil] the reasoning options
-      def reasoning(value = nil, effort: nil, budget_tokens: nil)
-        if value || effort || budget_tokens
-          raise ArgumentError, "pass a level, effort:, or budget_tokens: — not more than one" if [value, effort, budget_tokens].compact.size > 1
-          @reasoning = value ? {effort: value.to_s} : {effort: effort&.to_s, budget_tokens: budget_tokens}.compact
+      def reasoning(value = NOT_SPECIFIED, effort: nil, budget_tokens: nil)
+        return inherited_setting(:reasoning) if value.equal?(NOT_SPECIFIED) && effort.nil? && budget_tokens.nil?
+
+        passed = [(value.equal?(NOT_SPECIFIED) ? nil : value), effort, budget_tokens].compact
+        raise ArgumentError, "pass a level, effort:, or budget_tokens: — not more than one" if passed.size > 1
+
+        @reasoning = if passed.empty?
+          nil
+        elsif effort || budget_tokens
+          {effort: effort&.to_s, budget_tokens: budget_tokens}.compact
+        else
+          {effort: value.to_s}
         end
-        @reasoning
       end
 
-      # DSL: get or set the maximum output tokens.
+      # DSL: get or set the maximum output tokens. The value is inherited from
+      # the parent agent class unless set; pass an explicit nil to remove an
+      # inherited value.
       #
-      # @param value [Integer, nil]
+      # @param value [Integer, nil] the maximum output tokens. Passing and explicit nil removes the previously set value.
       # @return [Integer, nil]
-      def max_output_tokens(value = nil)
-        @max_output_tokens = value unless value.nil?
-        @max_output_tokens
+      def max_output_tokens(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:max_output_tokens)
+        else
+          @max_output_tokens = value
+        end
       end
 
-      # DSL: get or set the maximum automatic tool-execution rounds.
+      # DSL: get or set the maximum automatic tool-execution rounds. The value
+      # is inherited from the parent agent class unless set; pass an explicit
+      # nil to remove an inherited value.
       #
-      # @param value [Integer, nil]
+      # @param value [Integer, nil] the maximum automatic tool-execution rounds. Passing and explicit nil removes the previously set value.
       # @return [Integer, nil]
-      def max_tool_iterations(value = nil)
-        @max_tool_iterations = value unless value.nil?
-        @max_tool_iterations
+      def max_tool_iterations(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:max_tool_iterations)
+        else
+          @max_tool_iterations = value
+        end
       end
 
       # DSL: declare a tool. The tool's handler is the instance method with the
@@ -129,7 +191,8 @@ module PatientLLM
       # the declared parameters. The schema can be declared with a {Schema}
       # block or passed as a raw JSON Schema hash with parameters:.
       #
-      # @param name [Symbol, String] the tool name (must be a valid method name)
+      # @param name [Symbol, String] the tool name (must be a valid method name).
+      #   Passing and explicit nil removes the previously set value.
       # @param description [String, nil] what the tool does
       # @param parameters [Hash, nil] a raw JSON Schema hash for the parameters
       # @param strict [Boolean, nil] whether strict schema adherence is requested
@@ -139,14 +202,18 @@ module PatientLLM
         raise ArgumentError, "pass either parameters: or a schema block, not both" if parameters && block
 
         schema = parameters ? PromptBuilder.jsonify(parameters) : Schema.build(&block)
-        tools[name.to_s] = {description: description, parameters: schema, strict: strict}
+        own_tools[name.to_s] = {description: description, parameters: schema, strict: strict}
       end
 
-      # The declared tools.
+      # The declared tools, including tools inherited from parent agent
+      # classes. A tool redeclared in a subclass replaces the inherited
+      # declaration. The returned hash is a copy; declare tools with the
+      # {tool} DSL method rather than mutating it.
       #
       # @return [Hash<String, Hash>] tool name to declaration
       def tools
-        @tools ||= {}
+        merged = (self == PatientLLM::Agent) ? {} : superclass.tools
+        merged.merge!(deep_dup(own_tools))
       end
 
       # DSL: declare a structured output schema. The model's response is parsed
@@ -169,10 +236,13 @@ module PatientLLM
         }
       end
 
-      # The declared output schema.
+      # The declared output schema, inherited from the parent agent class
+      # unless declared with {output}.
       #
       # @return [Hash, nil] the schema declaration (:name, :schema, :strict)
-      attr_reader :output_schema
+      def output_schema
+        inherited_setting(:output_schema)
+      end
 
       # Send a message to the agent asynchronously. When the final response
       # arrives (after any automatic tool rounds), the agent's `completed` hook
@@ -194,7 +264,7 @@ module PatientLLM
         session ||= build_session(**session_options)
         session.user(message) if message
 
-        ask_options = options.reject { |key, _| PromptBuilder::Session::INITIALIZE_OPTIONS.include?(key) }
+        ask_options = options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
         ask_options[:max_tool_iterations] ||= max_tool_iterations if max_tool_iterations
 
         PatientLLM.ask(
@@ -267,6 +337,7 @@ module PatientLLM
       # @return [PromptBuilder::Session]
       def apply_configuration(session)
         session.system(system) if system
+        session.instructions = instructions if instructions
         session.temperature = temperature if temperature
         session.max_output_tokens = max_output_tokens if max_output_tokens
         session.think(**reasoning.transform_keys(&:to_sym)) if reasoning
@@ -298,14 +369,20 @@ module PatientLLM
         provider || raise(ArgumentError, "#{self} must declare a provider")
       end
 
-      def inherited(subclass)
-        super
-        INHERITED_SETTINGS.each do |setting|
-          value = instance_variable_get(:"@#{setting}")
-          next if value.nil?
-
-          subclass.instance_variable_set(:"@#{setting}", deep_dup(value))
+      # Look up a setting on this class, falling back to the parent agent
+      # class when it was never set here. An explicitly removed setting (set
+      # to nil) defines the instance variable, masking the inherited value.
+      def inherited_setting(name)
+        ivar = :"@#{name}"
+        if instance_variable_defined?(ivar)
+          instance_variable_get(ivar)
+        elsif self != PatientLLM::Agent
+          superclass.public_send(name)
         end
+      end
+
+      def own_tools
+        @tools ||= {}
       end
 
       def deep_dup(value)
