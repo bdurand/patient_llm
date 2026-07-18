@@ -44,7 +44,7 @@ module PatientLLM
     #
     # @param name [Symbol, String] Provider name
     # @param preset [Symbol, nil] Built-in preset name (:openai, :anthropic, :gemini, :bedrock_runtime)
-    # @param url [String, nil] Base URL for the provider API (required unless supplied by the preset)
+    # @param url [String, nil] Base URL for the provider API
     # @param api_key [Proc, String, PatientHttp::SecretReference, nil] The API key for the provider.
     #   A Proc is resolved at dispatch time (preferred). A String is captured into the secret
     #   registry and never serialized. A SecretReference uses your own registered secret as-is.

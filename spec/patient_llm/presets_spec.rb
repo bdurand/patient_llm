@@ -47,11 +47,11 @@ RSpec.describe PatientLLM::Presets do
       expect(result[:preprocessors]).to eq(:aws_sigv4)
     end
 
-    it "returns nil when the bedrock preset is used without a region" do
-      config.provider :bedrock, preset: :bedrock_runtime
+    it "does not require a region when an explicit url is given" do
+      config.provider :bedrock, preset: :bedrock_runtime, url: "https://bedrock.example.com"
 
       result = config.lookup(:bedrock)
-      expect(result[:url]).to be_nil
+      expect(result[:url]).to eq("https://bedrock.example.com")
     end
 
     it "raises for an unknown preset" do

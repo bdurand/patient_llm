@@ -328,6 +328,28 @@ RSpec.describe PatientLLM::Agent do
       session = agent.build_session
       expect(session.reasoning).to eq({"effort" => "medium"})
     end
+
+    it "lets per-request session options override the agent's declarations" do
+      session = TestTripAgent.build_session(temperature: 0.9, instructions: "Answer in haiku.")
+
+      expect(session.temperature).to eq(0.9)
+      expect(session.instructions).to eq("Answer in haiku.")
+      expect(session.max_output_tokens).to eq(500)
+    end
+
+    it "lets an explicit nil session option unset a declared value for one request" do
+      session = TestTripAgent.build_session(temperature: nil)
+
+      expect(session.temperature).to be_nil
+      expect(session.instructions).to eq("Answer in one paragraph.")
+    end
+
+    it "uses the caller's system message instead of the agent's when provided" do
+      session = TestTripAgent.build_session(system: "Override system.")
+
+      system_messages = session.items.select { |item| item.system? }
+      expect(system_messages.map { |m| m.content.first.text }).to eq(["Override system."])
+    end
   end
 
   describe ".ask" do
@@ -378,6 +400,35 @@ RSpec.describe PatientLLM::Agent do
         expect(session.tool_definitions.map(&:name)).to eq(["weather"])
         texts = session.items.select { |item| item.role == "user" }
         expect(texts.map { |m| m.content.first.text }).to eq(["First message", "Make it kid-friendly"])
+      end
+    end
+
+    it "does not duplicate the system message across continue round-trips" do
+      state = TestTripAgent.build_session.tap { |s| s.user("First message") }.to_h
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Second message")
+        state = PromptBuilder::Session.from_h(captured.first[:callback_args][:session]).to_h
+
+        TestTripAgent.continue(state, "Third message")
+
+        session = PromptBuilder::Session.from_h(captured.last[:callback_args][:session])
+        system_messages = session.items.select { |item| item.is_a?(PromptBuilder::Items::Message) && item.system? }
+        expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
+      end
+    end
+
+    it "replaces the persisted system message when the agent's declaration changed" do
+      state = TestTripAgent.build_session.to_h
+      state["input"][0]["content"][0]["text"] = "An older system prompt."
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Hello")
+
+        session = PromptBuilder::Session.from_h(captured.first[:callback_args][:session])
+        system_messages = session.items.select { |item| item.is_a?(PromptBuilder::Items::Message) && item.system? }
+        expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
+        expect(session.items.first.system?).to be(true)
       end
     end
   end
@@ -514,6 +565,45 @@ RSpec.describe PatientLLM::Agent do
       agent = TestTripAgent.new
       expect(agent.handles_tool?("weather")).to be true
       expect(agent.handles_tool?("undeclared")).to be false
+    end
+
+    it "does not route declared tools to inherited Object methods" do
+      agent_class = Class.new(PatientLLM::Agent) do
+        def self.name
+          "CollidingToolAgent"
+        end
+        provider :openai
+        model "gpt-4"
+
+        tool :freeze, "A tool colliding with Object#freeze"
+      end
+
+      expect(agent_class.new.handles_tool?("freeze")).to be false
+    end
+
+    it "handles tools implemented in modules mixed into the agent" do
+      helper = Module.new do
+        def lookup(id: nil)
+          "found #{id}"
+        end
+      end
+
+      agent_class = Class.new(PatientLLM::Agent) do
+        def self.name
+          "MixinToolAgent"
+        end
+        provider :openai
+        model "gpt-4"
+
+        tool :lookup, "Lookup" do
+          param :id, :string
+        end
+      end
+      agent_class.include(helper)
+
+      agent = agent_class.new
+      expect(agent.handles_tool?("lookup")).to be true
+      expect(agent.invoke_tool("lookup", {"id" => "42"})).to eq("found 42")
     end
 
     it "does not pass context to tool methods that do not declare it" do

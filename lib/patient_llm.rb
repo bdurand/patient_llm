@@ -168,6 +168,11 @@ module PatientLLM
       request_options["timeout"] = timeout if timeout
       request_options["max_tool_iterations"] = max_tool_iterations if max_tool_iterations
 
+      # The request options travel through the job queue in the callback args,
+      # which only permit JSON-native values; convert Symbols (e.g. serializer
+      # names, preprocessor names, header/param values) to Strings up front.
+      request_options = PromptBuilder.jsonify(request_options)
+
       dispatch(session, provider: provider, callback: callback, callback_args: callback_args, request_options: request_options)
     end
 
@@ -191,6 +196,8 @@ module PatientLLM
 
       resolved_path = request_options["path"] || provider_config[:path] || SERIALIZER_PATHS[resolved_serializer]
       if resolved_path.include?("{model}")
+        raise ArgumentError, "The endpoint path #{resolved_path.inspect} includes a {model} placeholder but session.model is not set" if session.model.nil?
+
         resolved_path = resolved_path.gsub("{model}", session.model.to_s)
       end
 
@@ -214,7 +221,7 @@ module PatientLLM
         provider: provider_name,
         serializer: resolved_serializer.to_s,
         callback: callback.to_s,
-        custom: callback_args.transform_keys(&:to_s),
+        custom: PromptBuilder.jsonify(callback_args || {}),
         request_options: request_options,
         max_tool_iterations: resolved_max_tool_iterations,
         tool_iteration: tool_iteration,

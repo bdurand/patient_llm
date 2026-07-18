@@ -320,28 +320,33 @@ module PatientLLM
         capture[:response] || raise("No response was captured; the request did not complete")
       end
 
-      # Build a new session from the agent's declarations.
+      # Build a new session from the agent's declarations. Options passed by
+      # the caller take precedence over the agent's declarations for the same
+      # fields (pass an explicit nil to unset a declared value for one request).
       #
       # @return [PromptBuilder::Session]
       def build_session(**options)
         session = PromptBuilder::Session.new(**options)
-        apply_configuration(session)
+        apply_configuration(session, except: options.keys)
         session.model ||= model
         session
       end
 
       # Apply the agent's declarations to a session. Used for both new sessions
-      # and sessions restored from persisted state.
+      # and sessions restored from persisted state. Fields listed in +except+
+      # are left untouched (used by {build_session} so per-request options win
+      # over the agent's declarations).
       #
       # @param session [PromptBuilder::Session]
+      # @param except [Array<Symbol>] session fields to skip
       # @return [PromptBuilder::Session]
-      def apply_configuration(session)
-        session.system(system) if system
-        session.instructions = instructions if instructions
-        session.temperature = temperature if temperature
-        session.max_output_tokens = max_output_tokens if max_output_tokens
-        session.think(**reasoning.transform_keys(&:to_sym)) if reasoning
-        if output_schema
+      def apply_configuration(session, except: [])
+        apply_system_message(session) if system && !except.include?(:system)
+        session.instructions = instructions if instructions && !except.include?(:instructions)
+        session.temperature = temperature if temperature && !except.include?(:temperature)
+        session.max_output_tokens = max_output_tokens if max_output_tokens && !except.include?(:max_output_tokens)
+        session.think(**reasoning.transform_keys(&:to_sym)) if reasoning && !except.include?(:reasoning)
+        if output_schema && !except.include?(:text)
           session.json_output(output_schema[:schema], name: output_schema[:name], strict: output_schema[:strict])
         end
         tools.each do |name, declaration|
@@ -367,6 +372,20 @@ module PatientLLM
 
       def provider_name!
         provider || raise(ArgumentError, "#{self} must declare a provider")
+      end
+
+      # Set the agent's system message on the session, replacing an existing
+      # system message in place (a session restored from persisted state
+      # already carries the one applied on the previous turn). Replacing at
+      # the same index keeps the response boundary of server-state sessions
+      # pointing at the right items.
+      def apply_system_message(session)
+        index = session.items.index { |item| item.is_a?(PromptBuilder::Items::Message) && item.system? }
+        if index
+          session.items[index] = PromptBuilder::Items::Message.new(role: "system", content: system)
+        else
+          session.system(system)
+        end
       end
 
       # Look up a setting on this class, falling back to the parent agent
@@ -473,11 +492,22 @@ module PatientLLM
     end
 
     # Plumbing: whether this agent handles the named tool with an instance
-    # method. Used by {Callback} to route tool execution.
+    # method. Used by {Callback} to route tool execution. Only methods defined
+    # by the agent class hierarchy (or modules mixed into it) count as
+    # handlers — a declared tool name that collides with an inherited Object
+    # method must not route LLM-controlled invocations to it.
     #
     # @api private
     def handles_tool?(name)
-      self.class.tool_declared?(name) && respond_to?(name.to_sym)
+      return false unless self.class.tool_declared?(name)
+
+      method_name = name.to_sym
+      return false unless respond_to?(method_name)
+
+      ancestors = singleton_class.ancestors
+      owner_index = ancestors.index(method(method_name).owner)
+      agent_index = ancestors.index(PatientLLM::Agent)
+      !owner_index.nil? && !agent_index.nil? && owner_index < agent_index
     end
 
     # Plumbing: invoke the tool's instance method with the LLM-provided

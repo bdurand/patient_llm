@@ -126,6 +126,13 @@ RSpec.describe PatientLLM do
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
         }.to raise_error(ArgumentError, /completion_path/)
       end
+
+      it "raises when the path includes {model} but the session has no model" do
+        no_model_session = PromptBuilder::Session.new.tap { |s| s.user("Hello") }
+        expect {
+          PatientLLM.ask(no_model_session, provider: :openai, callback: "TestCallback", path: "v1beta/models/{model}:generateContent")
+        }.to raise_error(ArgumentError, /\{model\} placeholder/)
+      end
     end
 
     describe "header merging" do
@@ -347,19 +354,39 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "records params override in request_options" do
+      it "records params override in request_options with JSON-native keys and values" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", params: {top_p: 0.9})
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", params: {top_p: 0.9, service_tier: :flex})
           options = captured.call[:callback_args][:request_options]
-          expect(options["params"]).to eq({top_p: 0.9})
+          expect(options["params"]).to eq({"top_p" => 0.9, "service_tier" => "flex"})
         end
       end
 
-      it "records preprocessors override in request_options" do
+      it "records preprocessors override in request_options as strings" do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", preprocessors: :aws_sigv4)
           options = captured.call[:callback_args][:request_options]
-          expect(options["preprocessors"]).to eq(:aws_sigv4)
+          expect(options["preprocessors"]).to eq("aws_sigv4")
+        end
+      end
+
+      it "produces callback args that pass PatientHttp's JSON-native validation" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(
+            session,
+            provider: :openai,
+            callback: "TestCallback",
+            callback_args: {status: :new, nested: {kind: :trip}},
+            params: {service_tier: :flex},
+            headers: {"X-Foo" => "bar"},
+            preprocessors: [:sign_a, :sign_b]
+          )
+          args = captured.call[:callback_args]
+          expect {
+            args.each { |key, value| PatientHttp::CallbackArgs.validate_value!(value, key.to_s) }
+          }.not_to raise_error
+          expect(args[:custom]).to eq({"status" => "new", "nested" => {"kind" => "trip"}})
+          expect(args[:request_options]["preprocessors"]).to eq(["sign_a", "sign_b"])
         end
       end
 

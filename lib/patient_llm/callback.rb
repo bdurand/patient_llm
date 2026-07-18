@@ -104,7 +104,7 @@ module PatientLLM
       session = restore_session(callback_args)
       provider_name = callback_args[:provider]
       http_response = error.respond_to?(:response) ? error.response : nil
-      original_request_id = callback_args.fetch(:original_request_id, http_response&.request_id)
+      original_request_id = callback_args.fetch(:original_request_id, nil) || http_response&.request_id
       user_callback = resolve_user_callback(callback_args)
       prepare_user_callback(user_callback, session: session, provider: provider_name, callback_args: callback_args, http_response: http_response, request_id: original_request_id)
       invoke_user_callback(user_callback, :on_error, session: session, provider: provider_name, callback_args: user_callback_args(callback_args), error: error, http_response: http_response, request_id: original_request_id)
@@ -216,8 +216,16 @@ module PatientLLM
 
       halt = nil
       llm_response.tool_calls.each do |function_call|
-        result, halted = execute_tool(function_call, user_callback, callback_args)
-        halt = halted if halted
+        result, halted =
+          if halt
+            # A previous tool halted the loop. The remaining calls are not
+            # executed, but they still need outputs so every function call
+            # has one and the session remains valid for continuation.
+            ["Tool execution halted", nil]
+          else
+            execute_tool(function_call, user_callback, callback_args)
+          end
+        halt ||= halted
 
         session.add_item(
           PromptBuilder::Items::FunctionCallOutput.new(
@@ -225,7 +233,6 @@ module PatientLLM
             output: result
           )
         )
-        break if halt
       end
 
       if halt
@@ -234,7 +241,11 @@ module PatientLLM
           model: llm_response.model,
           usage: llm_response.usage
         )
-        session.add_response(halt_response)
+        # The synthesized message is added with add_item rather than
+        # add_response: the server never saw the tool outputs or this message,
+        # so a server-state session's response boundary must not advance past
+        # them or a later continue would drop them from the request.
+        halt_response.output.each { |item| session.add_item(item) }
         invoke_user_callback(user_callback, :on_complete, session: session, provider: provider_name, llm_response: halt_response, callback_args: user_callback_args(callback_args), http_response: http_response, request_id: original_request_id)
         return
       end
