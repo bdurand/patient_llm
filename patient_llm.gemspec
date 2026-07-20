@@ -39,7 +39,4 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "patient_http", "~> 1.3"
   spec.add_dependency "prompt_builder", "~> 0.3"
-
-  spec.add_development_dependency "bundler"
-  spec.add_development_dependency "rspec", "~> 3.12"
 end

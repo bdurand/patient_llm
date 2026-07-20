@@ -5,6 +5,19 @@ Warning[:experimental] = false
 
 require "bundler/setup"
 
+# SimpleCov must be started before requiring the lib
+begin
+  require "simplecov"
+  SimpleCov.start do
+    add_filter "/spec/"
+    enable_coverage :branch
+  end
+rescue LoadError
+  # SimpleCov is not available
+end
+
+Bundler.require(:default, :test)
+
 require "webmock/rspec"
 
 require_relative "../lib/patient_llm"
