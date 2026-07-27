@@ -268,6 +268,26 @@ end
 
 Inside hooks and tool methods the agent also exposes `session` and `provider` instance readers.
 
+### Overriding the hooks per request
+
+Pass `callback:` to `ask`, `continue`, or `ask!` to send the hooks to another class instead of the agent. The agent still supplies the provider, model, tools, and output schema — only the hooks move:
+
+```ruby
+class TripCallbacks
+  def completed(response)
+    Trip.find(response[:trip_id]).update!(itinerary: response.object)
+  end
+
+  def failed(failure)
+    ErrorReporter.notify(failure.error, trip_id: failure[:trip_id])
+  end
+end
+
+TripPlannerAgent.ask("Plan a weekend in NYC", context: {trip_id: trip.id}, callback: TripCallbacks)
+```
+
+The class is instantiated fresh in the worker for each invocation and may implement any subset of `completed`, `failed`, and `tool_round`; a hook it doesn't implement falls back to the agent's own. Only the class *name* travels through the queue, so it must be a named, resolvable class — an anonymous class raises `ArgumentError`, and one implementing none of the three hooks raises `ArgumentError` when `ask` is called.
+
 > [!NOTE]
 > Tool handlers execute synchronously inside the callback worker (e.g. a Sidekiq job). Keep handlers fast to avoid blocking the worker pool. If a tool needs to do slow work, consider offloading it and using `HaltError` to stop the auto-loop.
 

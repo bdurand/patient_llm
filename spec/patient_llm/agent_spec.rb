@@ -53,9 +53,53 @@ class TestPlainAgent < PatientLLM::Agent
   model "gpt-4"
 end
 
+class TestTripCallbacks
+  class << self
+    attr_accessor :recorded
+  end
+
+  def completed(response)
+    self.class.recorded[:completed] = response
+  end
+
+  def failed(failure)
+    self.class.recorded[:failed] = failure
+  end
+
+  def tool_round(response)
+    self.class.recorded[:tool_rounds] ||= 0
+    self.class.recorded[:tool_rounds] += 1
+  end
+end
+
+class TestFailureOnlyCallbacks
+  class << self
+    attr_accessor :recorded
+  end
+
+  def failed(failure)
+    self.class.recorded[:failed] = failure
+  end
+end
+
+class TestAgentCallbacks < PatientLLM::Agent
+  class << self
+    attr_accessor :recorded
+  end
+
+  def completed(response)
+    self.class.recorded[:completed] = response
+    self.class.recorded[:session] = session
+    self.class.recorded[:provider] = provider
+  end
+end
+
 RSpec.describe PatientLLM::Agent do
   before do
     TestTripAgent.recorded = {}
+    TestTripCallbacks.recorded = {}
+    TestFailureOnlyCallbacks.recorded = {}
+    TestAgentCallbacks.recorded = {}
   end
 
   def with_fake_handler
@@ -83,6 +127,20 @@ RSpec.describe PatientLLM::Agent do
       body: JSON.generate(body),
       duration: 1.0,
       request_id: SecureRandom.uuid
+    )
+  end
+
+  def request_error(callback_args)
+    PatientHttp::RequestError.new(
+      class_name: "Timeout::Error",
+      message: "timed out",
+      backtrace: [],
+      error_type: :timeout,
+      duration: 1.0,
+      request_id: "req-1",
+      url: "https://api.openai.com/v1/chat/completions",
+      http_method: :post,
+      callback_args: callback_args
     )
   end
 
@@ -548,6 +606,156 @@ RSpec.describe PatientLLM::Agent do
       expect(failure[:trip_id]).to eq(9)
       expect(failure["trip_id"]).to eq(9)
       expect { failure[:missing] }.to raise_error(KeyError)
+    end
+  end
+
+  describe "callback option" do
+    it "carries the callback class name in the agent's callback args" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 7}, callback: TestTripCallbacks)
+
+        args = captured.first[:callback_args]
+        expect(args[:callback]).to eq("TestTripAgent")
+        expect(args[:custom]).to eq({"context" => {"trip_id" => 7}, "callback" => "TestTripCallbacks"})
+      end
+    end
+
+    it "accepts the callback class name as a string" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", callback: "TestTripCallbacks")
+
+        expect(captured.first[:callback_args][:custom]["callback"]).to eq("TestTripCallbacks")
+      end
+    end
+
+    it "sends completed to the callback class instead of the agent" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 7}, callback: TestTripCallbacks)
+
+        body = text_body('{"summary": "NYC weekend"}')
+        PatientLLM::Callback.new.on_complete(http_response(body, callback_args: captured.first[:callback_args]))
+      end
+
+      response = TestTripCallbacks.recorded[:completed]
+      expect(response).to be_a(PatientLLM::Agent::Response)
+      expect(response.object).to eq({"summary" => "NYC weekend"})
+      expect(response.context.to_h).to eq({trip_id: 7})
+      expect(TestTripAgent.recorded).to eq({})
+    end
+
+    it "sends failed to the callback class instead of the agent" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 9}, callback: TestTripCallbacks)
+
+        PatientLLM::Callback.new.on_error(request_error(captured.first[:callback_args]))
+      end
+
+      failure = TestTripCallbacks.recorded[:failed]
+      expect(failure).to be_a(PatientLLM::Agent::Failure)
+      expect(failure.error_type).to eq(:timeout)
+      expect(failure[:trip_id]).to eq(9)
+      expect(TestTripAgent.recorded).to eq({})
+    end
+
+    it "sends tool_round to the callback class and survives tool iterations" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("What's the weather in NYC?", context: {trip_id: 7}, callback: TestTripCallbacks)
+
+        PatientLLM::Callback.new.on_complete(http_response(tool_call_body("weather", {"city" => "NYC"}), callback_args: captured.first[:callback_args]))
+
+        second_args = captured.last[:callback_args]
+        expect(second_args[:custom]["callback"]).to eq("TestTripCallbacks")
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "Cold"}'), callback_args: second_args))
+      end
+
+      # The tool itself still runs on the agent; only the hooks are redirected.
+      expect(TestTripAgent.recorded[:weather_args]).to eq({city: "NYC", country: nil})
+      expect(TestTripAgent.recorded[:tool_rounds]).to be_nil
+      expect(TestTripCallbacks.recorded[:tool_rounds]).to eq(1)
+      expect(TestTripCallbacks.recorded[:completed].object).to eq({"summary" => "Cold"})
+    end
+
+    it "falls back to the agent for hooks the callback class does not implement" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", callback: TestFailureOnlyCallbacks)
+        callback_args = captured.first[:callback_args]
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "NYC"}'), callback_args: callback_args))
+        PatientLLM::Callback.new.on_error(request_error(callback_args))
+      end
+
+      expect(TestTripAgent.recorded[:completed]).to be_a(PatientLLM::Agent::Response)
+      expect(TestTripAgent.recorded[:failed]).to be_nil
+      expect(TestFailureOnlyCallbacks.recorded[:failed]).to be_a(PatientLLM::Agent::Failure)
+    end
+
+    it "prepares a callback class that is itself an agent so it exposes session and provider" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", callback: TestAgentCallbacks)
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "NYC"}'), callback_args: captured.first[:callback_args]))
+      end
+
+      expect(TestAgentCallbacks.recorded[:completed]).to be_a(PatientLLM::Agent::Response)
+      expect(TestAgentCallbacks.recorded[:session]).to be_a(PromptBuilder::Session)
+      expect(TestAgentCallbacks.recorded[:provider]).to eq("openai")
+      expect(TestTripAgent.recorded).to eq({})
+    end
+
+    it "behaves like the default when the agent names itself as the callback" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", callback: TestTripAgent)
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "NYC"}'), callback_args: captured.first[:callback_args]))
+      end
+
+      expect(TestTripAgent.recorded[:completed]).to be_a(PatientLLM::Agent::Response)
+    end
+
+    it "forwards the option through continue" do
+      state = TestTripAgent.build_session.to_h
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Make it kid-friendly", callback: TestTripCallbacks)
+
+        expect(captured.first[:callback_args][:custom]["callback"]).to eq("TestTripCallbacks")
+      end
+    end
+
+    it "runs the callback class hooks during inline execution and still returns the response" do
+      stub_request(:post, "https://api.openai.com/v1/chat/completions")
+        .to_return(status: 200, headers: {"content-type" => "application/json"}, body: JSON.generate(text_body('{"summary": "Cold in NYC"}')))
+
+      response = TestTripAgent.ask!("What's the weather?", callback: TestTripCallbacks)
+
+      expect(response.object).to eq({"summary" => "Cold in NYC"})
+      expect(TestTripCallbacks.recorded[:completed]).to be(response)
+      expect(TestTripAgent.recorded).to eq({})
+    end
+
+    it "raises when the callback class cannot be resolved" do
+      with_fake_handler do
+        expect { TestTripAgent.ask("hi", callback: "NoSuchCallbackClass") }.to raise_error(NameError)
+      end
+    end
+
+    it "raises when the callback class implements none of the hooks" do
+      stub_const("HooklessCallbacks", Class.new)
+
+      with_fake_handler do
+        expect {
+          TestTripAgent.ask("hi", callback: HooklessCallbacks)
+        }.to raise_error(ArgumentError, /must define at least one of completed, failed, tool_round/)
+      end
+    end
+
+    it "raises when the callback class is anonymous" do
+      with_fake_handler do
+        expect {
+          TestTripAgent.ask("hi", callback: Class.new { def completed(response) = nil })
+        }.to raise_error(ArgumentError, /named class/)
+      end
     end
   end
 

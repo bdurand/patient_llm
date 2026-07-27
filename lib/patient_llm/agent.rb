@@ -13,6 +13,10 @@ module PatientLLM
   # it, or remove an inherited scalar setting by passing an explicit nil
   # (e.g. `temperature nil`).
   #
+  # The completed/failed/tool_round hooks can be redirected to another class
+  # for one request by passing it as the :callback option to {ask}; the agent
+  # still supplies the configuration and the tools.
+  #
   # @example
   #   class TripPlannerAgent < PatientLLM::Agent
   #     provider :openai
@@ -54,6 +58,10 @@ module PatientLLM
     # Methods that implement the callback plumbing contract. Subclasses must
     # override the completed/failed/tool_round hooks instead.
     PLUMBING_METHODS = %i[on_complete on_tool_use on_error prepare handles_tool? invoke_tool].freeze
+
+    # The user-facing hooks that a class passed as the :callback option to
+    # {ask} may implement to take over from the agent's own hooks.
+    HOOKS = %i[completed failed tool_round].freeze
 
     # Sentinel default distinguishing "called as a getter" from an explicit
     # nil, which removes the value (masking any inherited one).
@@ -253,11 +261,16 @@ module PatientLLM
       #   response/failure objects in hooks and to tool methods
       # @param session [PromptBuilder::Session, nil] an existing session to use
       #   instead of building a new one
+      # @param callback [Class, String, nil] a named class to receive the
+      #   {HOOKS} instead of this agent. A fresh instance is created in the
+      #   worker for each invocation; hooks the class does not implement fall
+      #   back to the agent's own. Tools and configuration still come from the
+      #   agent. Defaults to sending the hooks to the agent itself.
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       #   (url:, serializer:, path:, headers:, params:, preprocessors:, timeout:,
       #   max_tool_iterations:)
       # @return [Object] handler-specific identifier for the enqueued request
-      def ask(message = nil, context: {}, session: nil, **options)
+      def ask(message = nil, context: {}, session: nil, callback: nil, **options)
         session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
         raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
 
@@ -267,11 +280,15 @@ module PatientLLM
         ask_options = options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
         ask_options[:max_tool_iterations] ||= max_tool_iterations if max_tool_iterations
 
+        agent_callback_args = {"context" => PromptBuilder.jsonify(context || {})}
+        callback_name = callback_class_name(callback)
+        agent_callback_args["callback"] = callback_name if callback_name
+
         PatientLLM.ask(
           session,
           provider: provider_name!,
           callback: self,
-          callback_args: {"context" => PromptBuilder.jsonify(context || {})},
+          callback_args: agent_callback_args,
           **ask_options
         )
       end
@@ -284,7 +301,8 @@ module PatientLLM
       # @param state [Hash] a session state hash from `response.state`
       # @param message [String, Array, Hash, nil] the user message to add
       # @param context [Hash] JSON-native data available as `context` on the response/failure objects in hooks
-      # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
+      # @param options [Hash] per-request overrides forwarded to {ask} (including
+      #   callback:) and {PatientLLM.ask}
       # @return [Object] handler-specific identifier for the enqueued request
       def continue(state, message = nil, context: {}, **options)
         session = PromptBuilder::Session.from_h(state)
@@ -300,7 +318,8 @@ module PatientLLM
       # @param message [String, Array, Hash, nil] the user message to add
       # @param context [Hash] JSON-native data available as `context` on the response/failure objects in hooks
       # @param session [PromptBuilder::Session, nil] an existing session to use
-      # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
+      # @param options [Hash] per-request overrides forwarded to {ask} (including
+      #   callback:) and {PatientLLM.ask}
       # @return [Agent::Response] the final response
       # @raise [PatientHttp::Error] when the request fails
       def ask!(message = nil, context: {}, session: nil, **options)
@@ -374,6 +393,24 @@ module PatientLLM
         provider || raise(ArgumentError, "#{self} must declare a provider")
       end
 
+      # Resolve the :callback option to the class name that travels through the
+      # job queue. The class is resolved here so an unusable callback fails
+      # where ask was called rather than later in a worker process.
+      def callback_class_name(callback)
+        return nil if callback.nil?
+
+        name = callback.is_a?(Module) ? callback.name : callback.to_s
+        raise ArgumentError, "callback must be a named class or a class name" if name.nil? || name.empty?
+
+        callback_class = PatientHttp::ClassHelper.resolve_class_name(name)
+        raise ArgumentError, "callback #{name} is not a class" unless callback_class.is_a?(Class)
+        unless HOOKS.any? { |hook| callback_class.method_defined?(hook) }
+          raise ArgumentError, "#{callback_class} must define at least one of #{HOOKS.join(", ")} to be used as a callback"
+        end
+
+        name
+      end
+
       # Set the agent's system message on the session, replacing an existing
       # system message in place (a session restored from persisted state
       # already carries the one applied on the previous turn). Replacing at
@@ -436,6 +473,16 @@ module PatientLLM
     def prepare(session: nil, provider: nil, callback_args: nil, http_response: nil, request_id: nil)
       @session = session
       @provider = provider
+      @callback_delegate = build_callback_delegate(callback_args)
+      if @callback_delegate.is_a?(PatientLLM::Agent)
+        @callback_delegate.prepare(
+          session: session,
+          provider: provider,
+          callback_args: callback_args,
+          http_response: http_response,
+          request_id: request_id
+        )
+      end
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
@@ -453,7 +500,7 @@ module PatientLLM
         context: extract_context(callback_args)
       )
       capture_result(:response, response)
-      completed(response)
+      dispatch_hook(:completed, response)
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
@@ -469,7 +516,7 @@ module PatientLLM
         http_request_id: http_response&.request_id,
         context: extract_context(callback_args)
       )
-      tool_round(response)
+      dispatch_hook(:tool_round, response)
     end
 
     # Plumbing: adapter for the {Callback} contract. Do not override; implement
@@ -488,7 +535,7 @@ module PatientLLM
         context: extract_context(callback_args)
       )
       capture_result(:error, error)
-      failed(failure)
+      dispatch_hook(:failed, failure)
     end
 
     # Plumbing: whether this agent handles the named tool with an instance
@@ -525,7 +572,8 @@ module PatientLLM
     end
 
     # Hook: invoked with the final {Agent::Response} after any automatic tool
-    # rounds complete. Override in your agent.
+    # rounds complete. Override in your agent, or in a class passed as the
+    # :callback option to {ask}.
     #
     # @param response [Agent::Response] the final response; exposes the text,
     #   structured output, session state, HTTP exchange, and context
@@ -533,7 +581,8 @@ module PatientLLM
     def completed(response)
     end
 
-    # Hook: invoked when a request fails. Override in your agent. The default
+    # Hook: invoked when a request fails. Override in your agent, or in a class
+    # passed as the :callback option to {ask}. The default
     # implementation re-raises the error so unhandled failures are never
     # silently lost — under a job system this fails the callback job, making
     # the error visible to its retry and error reporting. During inline
@@ -549,8 +598,8 @@ module PatientLLM
     end
 
     # Hook: invoked once per automatic tool round, after the tools run and
-    # before the next request is issued. Override in your agent to observe
-    # intermediate progress.
+    # before the next request is issued. Override in your agent (or in a class
+    # passed as the :callback option to {ask}) to observe intermediate progress.
     #
     # @param response [Agent::Response] the intermediate tool-call response
     # @return [void]
@@ -558,6 +607,27 @@ module PatientLLM
     end
 
     private
+
+    # Send a user-facing hook to the class passed as the :callback option to
+    # ask when it implements that hook, otherwise to this agent.
+    def dispatch_hook(name, argument)
+      target = @callback_delegate&.respond_to?(name) ? @callback_delegate : self
+      target.public_send(name, argument)
+    end
+
+    # Instantiate the callback class named by the :callback option to ask, or
+    # nil when the hooks belong to this agent.
+    def build_callback_delegate(callback_args)
+      class_name = callback_args&.fetch(:callback, nil)
+      return nil if class_name.nil? || class_name.to_s.empty?
+
+      callback_class = PatientHttp::ClassHelper.resolve_class_name(class_name.to_s)
+      # An agent named as its own callback is just the default behavior.
+      # Returning nil also keeps prepare from recursing into a second instance.
+      return nil if callback_class == self.class
+
+      callback_class.new
+    end
 
     # The context passed to ask/continue, as stored in the callback args.
     def extract_context(callback_args)
