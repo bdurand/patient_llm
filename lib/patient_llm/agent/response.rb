@@ -32,7 +32,17 @@ module PatientLLM
         @output_schema = output_schema
         @http_response = http_response
         @http_request_id = http_request_id
-        @context = context
+        @context = context || PatientHttp::CallbackArgs.new
+      end
+
+      # A value from the context passed to ask/continue. Shorthand for
+      # `response.context[key]`.
+      #
+      # @param key [String, Symbol] the context key
+      # @return [Object] the context value
+      # @raise [KeyError] if the key is not in the context
+      def [](key)
+        context[key]
       end
 
       # The text of the response.

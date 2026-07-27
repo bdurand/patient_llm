@@ -452,6 +452,20 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.recorded[:completed_context]).to eq({trip_id: 7})
     end
 
+    it "exposes context values on the response with []" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", context: {trip_id: 7})
+
+        body = text_body('{"summary": "NYC weekend"}')
+        PatientLLM::Callback.new.on_complete(http_response(body, callback_args: captured.first[:callback_args]))
+      end
+
+      response = TestTripAgent.recorded[:completed]
+      expect(response[:trip_id]).to eq(7)
+      expect(response["trip_id"]).to eq(7)
+      expect { response[:missing] }.to raise_error(KeyError)
+    end
+
     it "raises StructuredOutputError from object when the response is not JSON" do
       with_fake_handler do |captured|
         TestTripAgent.ask("Plan a trip")
@@ -531,6 +545,9 @@ RSpec.describe PatientLLM::Agent do
       expect(failure.http_response).to be_nil
       expect(failure.http_request_id).to eq("req-1")
       expect(TestTripAgent.recorded[:failed_context]).to eq({trip_id: 9})
+      expect(failure[:trip_id]).to eq(9)
+      expect(failure["trip_id"]).to eq(9)
+      expect { failure[:missing] }.to raise_error(KeyError)
     end
   end
 

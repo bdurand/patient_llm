@@ -250,6 +250,14 @@ Each hook receives a single object bundling the whole invocation:
 - `completed(response)` and `tool_round(response)` receive a `PatientLLM::Agent::Response` exposing `text`, `object` (parsed structured output), `state` (the serializable session), `usage`, `model`, `tool_calls`, `session`, `context` (what you passed to `ask`/`continue`), `http_response` (the `PatientHttp::Response` — status, headers, body, duration), and `http_request_id`. In `completed` the HTTP exchange is the final request's; in `tool_round` it is that round's.
 - `failed(failure)` receives a `PatientLLM::Agent::Failure` exposing the `error` (with `error_type`, `message`, and `error_class` delegated for convenience) alongside the same `session`, `state`, `context`, `http_response`, and `http_request_id`. The `http_response` is nil for non-HTTP errors such as timeouts and connection failures.
 
+Both objects support `[]` as a shorthand for reading a context value, so `response[:trip_id]` is the same as `response.context[:trip_id]` (and raises `KeyError` if the key was not passed to `ask`/`continue`).
+
+```ruby
+def completed(response)
+  Trip.find(response[:trip_id]).update!(itinerary: response.object)
+end
+```
+
 A tool method that declares a `context:` keyword receives the context too:
 
 ```ruby
