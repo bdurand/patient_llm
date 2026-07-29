@@ -10,6 +10,7 @@ class TestTripAgent < PatientLLM::Agent
   temperature 0.3
   max_output_tokens 500
   max_tool_iterations 5
+  extra guardrail_config: {guardrailIdentifier: "gr-1", guardrailVersion: "1"}
 
   tool :weather, "Get the weather for a city" do
     param :city, :string, "City name", required: true
@@ -174,6 +175,7 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.temperature).to eq(0.3)
       expect(TestTripAgent.max_output_tokens).to eq(500)
       expect(TestTripAgent.max_tool_iterations).to eq(5)
+      expect(TestTripAgent.extra).to eq({"guardrail_config" => {"guardrailIdentifier" => "gr-1", "guardrailVersion" => "1"}})
     end
 
     it "declares tools with schemas from blocks" do
@@ -203,6 +205,7 @@ RSpec.describe PatientLLM::Agent do
       expect(subclass.temperature).to eq(0.3)
       expect(subclass.max_output_tokens).to eq(500)
       expect(subclass.max_tool_iterations).to eq(5)
+      expect(subclass.extra).to eq(TestTripAgent.extra)
       expect(subclass.tools.keys).to eq(["weather"])
       expect(subclass.output_schema).to eq(TestTripAgent.output_schema)
       expect(TestTripAgent.model).to eq("gpt-4")
@@ -239,6 +242,7 @@ RSpec.describe PatientLLM::Agent do
         temperature nil
         max_output_tokens nil
         max_tool_iterations nil
+        extra nil
       end
 
       expect(subclass.system).to be_nil
@@ -246,6 +250,7 @@ RSpec.describe PatientLLM::Agent do
       expect(subclass.temperature).to be_nil
       expect(subclass.max_output_tokens).to be_nil
       expect(subclass.max_tool_iterations).to be_nil
+      expect(subclass.extra).to be_nil
       expect(subclass.model).to eq("gpt-4")
 
       expect(TestTripAgent.system).to eq("You are a travel assistant.")
@@ -284,6 +289,29 @@ RSpec.describe PatientLLM::Agent do
 
       expect(parent.reasoning).to eq({effort: "medium"})
       expect(subclass.reasoning).to be_nil
+    end
+
+    it "replaces inherited extra when redeclared in a subclass" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "ExtraOverridingTripAgent"
+        end
+        extra stop_sequences: ["END"]
+      end
+
+      expect(subclass.extra).to eq({"stop_sequences" => ["END"]})
+      expect(TestTripAgent.extra).to eq({"guardrail_config" => {"guardrailIdentifier" => "gr-1", "guardrailVersion" => "1"}})
+    end
+
+    it "raises when extra is not a Hash" do
+      expect {
+        Class.new(TestPlainAgent) do
+          def self.name
+            "BadExtraAgent"
+          end
+          extra "not a hash"
+        end
+      }.to raise_error(ArgumentError, "extra must be a Hash")
     end
 
     it "replaces an inherited tool when redeclared in a subclass" do
@@ -337,6 +365,7 @@ RSpec.describe PatientLLM::Agent do
       expect(session.instructions).to eq("Answer in one paragraph.")
       expect(session.temperature).to eq(0.3)
       expect(session.max_output_tokens).to eq(500)
+      expect(session.extra).to eq({"guardrail_config" => {"guardrailIdentifier" => "gr-1", "guardrailVersion" => "1"}})
       expect(session.text.dig("format", "type")).to eq("json_schema")
       expect(session.tool_definitions.map(&:name)).to eq(["weather"])
     end
@@ -388,17 +417,19 @@ RSpec.describe PatientLLM::Agent do
     end
 
     it "lets per-request session options override the agent's declarations" do
-      session = TestTripAgent.build_session(temperature: 0.9, instructions: "Answer in haiku.")
+      session = TestTripAgent.build_session(temperature: 0.9, instructions: "Answer in haiku.", extra: {stop_sequences: ["END"]})
 
       expect(session.temperature).to eq(0.9)
       expect(session.instructions).to eq("Answer in haiku.")
+      expect(session.extra).to eq({"stop_sequences" => ["END"]})
       expect(session.max_output_tokens).to eq(500)
     end
 
     it "lets an explicit nil session option unset a declared value for one request" do
-      session = TestTripAgent.build_session(temperature: nil)
+      session = TestTripAgent.build_session(temperature: nil, extra: nil)
 
       expect(session.temperature).to be_nil
+      expect(session.extra).to eq({})
       expect(session.instructions).to eq("Answer in one paragraph.")
     end
 
@@ -420,6 +451,14 @@ RSpec.describe PatientLLM::Agent do
         expect(args[:custom]).to eq({"context" => {"trip_id" => 7}})
         expect(args[:max_tool_iterations]).to eq(5)
         expect(args[:session]["input"].last["content"].first["text"]).to eq("Plan a weekend in NYC")
+      end
+    end
+
+    it "forwards a per-request extra session option to the session" do
+      with_fake_handler do |captured|
+        TestTripAgent.ask("hi", extra: {stop_sequences: ["END"]})
+
+        expect(captured.first[:callback_args][:session]["extra"]).to eq({"stop_sequences" => ["END"]})
       end
     end
 
@@ -487,6 +526,28 @@ RSpec.describe PatientLLM::Agent do
         system_messages = session.items.select { |item| item.is_a?(PromptBuilder::Items::Message) && item.system? }
         expect(system_messages.map { |m| m.content.first.text }).to eq(["You are a travel assistant."])
         expect(session.items.first.system?).to be(true)
+      end
+    end
+
+    it "replaces persisted extra with the agent's current declaration" do
+      state = PromptBuilder::Session.new(model: "gpt-4", extra: {"guardrail_config" => {"guardrailIdentifier" => "old", "guardrailVersion" => "1"}}).to_h
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Hello")
+
+        session = PromptBuilder::Session.from_h(captured.first[:callback_args][:session])
+        expect(session.extra).to eq({"guardrail_config" => {"guardrailIdentifier" => "gr-1", "guardrailVersion" => "1"}})
+      end
+    end
+
+    it "leaves persisted extra alone when the agent declares none" do
+      state = PromptBuilder::Session.new(model: "gpt-4", extra: {"stop_sequences" => ["END"]}).to_h
+
+      with_fake_handler do |captured|
+        TestPlainAgent.continue(state, "Hello")
+
+        session = PromptBuilder::Session.from_h(captured.first[:callback_args][:session])
+        expect(session.extra).to eq({"stop_sequences" => ["END"]})
       end
     end
   end

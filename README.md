@@ -191,10 +191,13 @@ class ResearchAgent < PatientLLM::Agent
   max_output_tokens 4_000
   reasoning :medium             # portable effort level, or reasoning budget_tokens: 8_000
   max_tool_iterations 5         # tool loop cap for this agent (default 10)
+  extra guardrail_config: {guardrailIdentifier: "gr-1", guardrailVersion: "1"}
 end
 ```
 
 `instructions` sets system-level instructions for the request. On APIs without a separate instructions field they are appended to the system prompt.
+
+`extra` sets provider-specific extra data on every session the agent builds. The recognized keys depend on the serializer used for the request — for example, the Bedrock Converse serializer maps `guardrail_config`, `stop_sequences`, `additional_model_request_fields`, and `performance_config` into the request payload (see the prompt_builder docs for each serializer's keys). Redeclaring `extra` in a subclass replaces the whole hash, and `continue` re-applies the agent's current value to restored sessions. A per-request `ask(extra: {...})` replaces the declaration for that request; to add to it instead, merge explicitly: `MyAgent.ask(msg, extra: MyAgent.extra.merge(...))`.
 
 ### Inheritance
 

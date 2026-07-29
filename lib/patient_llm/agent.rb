@@ -194,6 +194,24 @@ module PatientLLM
         end
       end
 
+      # DSL: get or set provider-specific extra data set on sessions built by
+      # this agent (e.g. the Bedrock Converse :guardrail_config). The
+      # recognized keys depend on the serializer used for the request. The
+      # value is inherited from the parent agent class unless set; redeclaring
+      # replaces the whole hash. Pass an explicit nil to remove an inherited
+      # value.
+      #
+      # @param value [Hash, nil] the extra data. Passing and explicit nil removes the previously set value.
+      # @return [Hash, nil]
+      def extra(value = NOT_SPECIFIED)
+        if value.equal?(NOT_SPECIFIED)
+          inherited_setting(:extra)
+        else
+          raise ArgumentError, "extra must be a Hash" unless value.nil? || value.is_a?(Hash)
+          @extra = value.nil? ? nil : PromptBuilder.jsonify(value)
+        end
+      end
+
       # DSL: declare a tool. The tool's handler is the instance method with the
       # same name; define it in the class body with keyword arguments matching
       # the declared parameters. The schema can be declared with a {Schema}
@@ -364,6 +382,7 @@ module PatientLLM
         session.instructions = instructions if instructions && !except.include?(:instructions)
         session.temperature = temperature if temperature && !except.include?(:temperature)
         session.max_output_tokens = max_output_tokens if max_output_tokens && !except.include?(:max_output_tokens)
+        session.extra = extra if extra && !except.include?(:extra)
         session.think(**reasoning.transform_keys(&:to_sym)) if reasoning && !except.include?(:reasoning)
         if output_schema && !except.include?(:text)
           session.json_output(output_schema[:schema], name: output_schema[:name], strict: output_schema[:strict])
