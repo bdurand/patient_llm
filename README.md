@@ -151,6 +151,18 @@ PatientHttp.register_secret("custom.api_key") { ENV["CUSTOM_API_KEY"] }
 
 Provider options: `url`, `headers`, `serializer`, `path`, `params` (merged into every payload), `preprocessors`, `timeout`, and `max_tool_iterations`.
 
+Every provider option (except `name` and `preset`) may also be a callable, evaluated each time the provider is looked up — i.e. on every request — so values can be generated dynamically at runtime:
+
+```ruby
+PatientLLM.configure do |config|
+  config.provider :gateway,
+    url: -> { LLMConfiguration.gateway_url },
+    timeout: -> { LLMConfiguration.request_timeout }
+end
+```
+
+Validation of a callable's result (serializer names, authentication headers) happens at lookup time instead of registration time.
+
 ### Request signing (preprocessors)
 
 Some providers require request signing rather than a static authentication header — for example, AWS Bedrock with SigV4, where a signature is computed over the final outgoing request. For these, register a [request preprocessor](https://github.com/bdurand/patient_http#request-preprocessors) on the PatientHttp configuration and reference it by name from the provider. Like secrets, only the preprocessor name is serialized into the job queue; the signing logic and credentials stay on the processor side.

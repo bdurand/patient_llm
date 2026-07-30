@@ -42,60 +42,65 @@ module PatientLLM
     # +register_secret+ call is needed. The key value itself is never serialized
     # into requests; only the secret name travels with them.
     #
+    # Arguments passed as a callable object (responds to `:call`) are evaluated
+    # at runtime on every request.
+    #
     # @param name [Symbol, String] Provider name
     # @param preset [Symbol, nil] Built-in preset name (:openai, :anthropic, :gemini, :bedrock_runtime)
-    # @param url [String, nil] Base URL for the provider API
-    # @param api_key [Proc, String, PatientHttp::SecretReference, nil] The API key for the provider.
-    #   A Proc is resolved at dispatch time (preferred). A String is captured into the secret
+    # @param url [String, #call, nil] Base URL for the provider API
+    # @param api_key [#call, String, PatientHttp::SecretReference, nil] The API key for the provider.
+    #   A Proc or callable object is resolved at dispatch time (preferred). A String is captured into the secret
     #   registry and never serialized. A SecretReference uses your own registered secret as-is.
-    # @param region [String, nil] Region for presets with region-based URLs (e.g. :bedrock_runtime)
-    # @param headers [Hash, nil] Default headers for requests (merged over preset headers)
-    # @param serializer [Symbol, nil] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
-    # @param path [String, nil] Override the default endpoint path
-    # @param params [Hash] Additional parameters to merge into every request payload
-    # @param preprocessors [String, Symbol, Array<String, Symbol>, nil] Names of request
+    # @param region [String, #call, nil] Region for presets with region-based URLs (e.g. :bedrock_runtime)
+    # @param headers [Hash, #call, nil] Default headers for requests (merged over preset headers)
+    # @param serializer [Symbol, #call, nil] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
+    # @param path [String, #call, nil] Override the default endpoint path
+    # @param params [Hash, #call] Additional parameters to merge into every request payload
+    # @param preprocessors [String, Symbol, Array<String, Symbol>, #call, nil] Names of request
     #   preprocessors to apply to every request (e.g. for request signing). Names must be
     #   registered on the PatientHttp configuration with `register_preprocessor`.
-    # @param timeout [Numeric, nil] Request timeout in seconds for this provider's requests
-    # @param max_tool_iterations [Integer, nil] Maximum automatic tool-execution rounds
+    # @param timeout [Numeric, #call, nil] Request timeout in seconds for this provider's requests
+    # @param max_tool_iterations [Integer, #call, nil] Maximum automatic tool-execution rounds
     #   for this provider's requests (default: PatientLLM::Callback::MAX_TOOL_ITERATIONS)
     # @return [void]
     def provider(name, preset: nil, url: nil, api_key: nil, region: nil, headers: nil, serializer: nil, path: nil, params: {}, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
-      preset_config = preset ? Presets.fetch(preset) : {}
-
-      resolved_url = url || (preset ? Presets.url(preset_config, region: region) : nil)
-
-      resolved_serializer = (serializer || preset_config[:serializer] || :chat_completion).to_sym
-      unless PatientLLM::VALID_SERIALIZERS.include?(resolved_serializer)
-        raise ArgumentError, "Unknown serializer: #{resolved_serializer.inspect}. Valid options: #{PatientLLM::VALID_SERIALIZERS.map(&:inspect).join(", ")}"
-      end
-
-      resolved_headers = (preset_config[:headers] || {}).merge(headers || {})
-      if api_key
-        auth_header, secret_reference = api_key_header(name, api_key, preset_config)
-        resolved_headers = {auth_header => secret_reference}.merge(resolved_headers)
-      end
-
-      ensure_auth_headers_use_secrets!(resolved_headers)
-
-      @providers[name.to_s] = {
-        url: resolved_url,
-        headers: resolved_headers,
-        serializer: resolved_serializer,
-        path: path || preset_config[:path],
+      preset_config = preset ? Presets.fetch(preset) : nil
+      options = {
+        preset_config: preset_config,
+        url: url,
+        region: region,
+        headers: headers,
+        serializer: serializer,
+        path: path,
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
         max_tool_iterations: max_tool_iterations
       }
+
+      options[:api_key_header] = api_key_header(name, api_key, preset_config || {}) if api_key
+
+      @providers[name.to_s] = if options.values.any? { |value| value.respond_to?(:call) }
+        {deferred: options}
+      else
+        build_provider_config(options)
+      end
     end
 
-    # Look up a registered provider by name.
+    # Look up a registered provider by name. A provider registered with
+    # callable arguments is resolved on every lookup: each callable is called
+    # and the provider config is rebuilt from the results.
     #
     # @param name [Symbol, String] Provider name
     # @return [Hash, nil] Provider config hash
     def lookup(name)
-      @providers[name&.to_s]
+      entry = @providers[name&.to_s]
+      return entry unless entry&.key?(:deferred)
+
+      resolved = entry[:deferred].transform_values do |value|
+        value.respond_to?(:call) ? value.call : value
+      end
+      build_provider_config(resolved)
     end
 
     # All registered provider names.
@@ -121,6 +126,40 @@ module PatientLLM
     end
 
     private
+
+    # Build a provider config hash from registration options. Runs at
+    # registration time for static options and at lookup time for options with
+    # callable values (after the callables have been resolved), so validation
+    # of a callable's result happens when the provider is used.
+    def build_provider_config(options)
+      preset_config = options[:preset_config] || {}
+
+      resolved_url = options[:url] || (options[:preset_config] ? Presets.url(preset_config, region: options[:region]) : nil)
+
+      resolved_serializer = (options[:serializer] || preset_config[:serializer] || :chat_completion).to_sym
+      unless PatientLLM::VALID_SERIALIZERS.include?(resolved_serializer)
+        raise ArgumentError, "Unknown serializer: #{resolved_serializer.inspect}. Valid options: #{PatientLLM::VALID_SERIALIZERS.map(&:inspect).join(", ")}"
+      end
+
+      resolved_headers = (preset_config[:headers] || {}).merge(options[:headers] || {})
+      if options[:api_key_header]
+        auth_header, secret_reference = options[:api_key_header]
+        resolved_headers = {auth_header => secret_reference}.merge(resolved_headers)
+      end
+
+      ensure_auth_headers_use_secrets!(resolved_headers)
+
+      {
+        url: resolved_url,
+        headers: resolved_headers,
+        serializer: resolved_serializer,
+        path: options[:path] || preset_config[:path],
+        params: options[:params] || {},
+        preprocessors: options[:preprocessors],
+        timeout: options[:timeout],
+        max_tool_iterations: options[:max_tool_iterations]
+      }
+    end
 
     # Build the authentication header for an api_key option. Returns the header
     # name and a SecretReference. Unless the api_key is already a SecretReference,

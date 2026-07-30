@@ -83,6 +83,59 @@ RSpec.describe PatientLLM::Configuration do
       result = config.lookup(:local)
       expect(result[:preprocessors]).to be_nil
     end
+
+    it "resolves callable arguments each time the provider is looked up" do
+      base_url = "https://api.openai.com"
+      config.provider :dynamic, url: -> { base_url }, timeout: -> { 30 }
+
+      result = config.lookup(:dynamic)
+      expect(result[:url]).to eq("https://api.openai.com")
+      expect(result[:timeout]).to eq(30)
+
+      base_url = "https://proxy.example.com"
+      expect(config.lookup(:dynamic)[:url]).to eq("https://proxy.example.com")
+    end
+
+    it "validates an unknown preset at registration even when another option is callable" do
+      expect {
+        config.provider :bad, preset: :nope, url: -> { "http://localhost" }
+      }.to raise_error(ArgumentError, /Unknown preset/)
+    end
+
+    it "resolves a callable region against the preset URL at lookup time" do
+      region = "us-east-1"
+      config.provider :bedrock, preset: :bedrock_runtime, region: -> { region }
+
+      expect(config.lookup(:bedrock)[:url]).to eq("https://bedrock-runtime.us-east-1.amazonaws.com")
+      region = "eu-west-1"
+      expect(config.lookup(:bedrock)[:url]).to eq("https://bedrock-runtime.eu-west-1.amazonaws.com")
+    end
+
+    it "validates a callable serializer at lookup time rather than registration" do
+      config.provider :dynamic, url: "http://localhost", serializer: -> { :invalid }
+
+      expect {
+        config.lookup(:dynamic)
+      }.to raise_error(ArgumentError, /Unknown serializer.*:invalid/)
+    end
+
+    it "validates callable headers at lookup time rather than registration" do
+      config.provider :dynamic, url: "http://localhost", headers: -> { {"authorization" => "plain_text_value"} }
+
+      expect {
+        config.lookup(:dynamic)
+      }.to raise_error(ArgumentError, /Authentication header authorization must be set up as a secret/)
+    end
+
+    it "registers the api_key secret at registration time alongside callable arguments" do
+      config.provider :dynamic, preset: :openai, api_key: -> { "secret-key" }, url: -> { "https://proxy.example.com" }
+
+      expect(PatientHttp.secret_registered?("patient_llm.dynamic.api_key")).to be(true)
+
+      result = config.lookup(:dynamic)
+      expect(result[:url]).to eq("https://proxy.example.com")
+      expect(result[:headers]["authorization"]).to be_a(PatientHttp::SecretReference)
+    end
   end
 
   describe "#lookup" do
