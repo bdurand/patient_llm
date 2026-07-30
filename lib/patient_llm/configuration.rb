@@ -51,6 +51,7 @@ module PatientLLM
     # @param api_key [#call, String, PatientHttp::SecretReference, nil] The API key for the provider.
     #   A Proc or callable object is resolved at dispatch time (preferred). A String is captured into the secret
     #   registry and never serialized. A SecretReference uses your own registered secret as-is.
+    #   This option can only be used in conjunction with a preset.
     # @param region [String, #call, nil] Region for presets with region-based URLs (e.g. :bedrock_runtime)
     # @param headers [Hash, #call, nil] Default headers for requests (merged over preset headers)
     # @param serializer [Symbol, #call, nil] API format (:chat_completion, :open_responses, :messages, :converse, :gemini)
