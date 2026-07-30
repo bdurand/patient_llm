@@ -314,6 +314,126 @@ RSpec.describe PatientLLM::Agent do
       }.to raise_error(ArgumentError, "extra must be a Hash")
     end
 
+    it "resolves a block declaration each time the value is read" do
+      model_name = "gpt-4o"
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "BlockValueAgent"
+        end
+      end
+      agent.model { model_name }
+
+      expect(agent.model).to eq("gpt-4o")
+      model_name = "gpt-4o-mini"
+      expect(agent.model).to eq("gpt-4o-mini")
+    end
+
+    it "resolves a callable argument each time the value is read" do
+      temperature_value = 0.5
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "CallableValueAgent"
+        end
+      end
+      agent.temperature -> { temperature_value }
+
+      expect(agent.temperature).to eq(0.5)
+      temperature_value = 0.9
+      expect(agent.temperature).to eq(0.9)
+    end
+
+    it "coerces a dynamic provider value at read time" do
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "DynamicProviderAgent"
+        end
+        provider -> { "openai" }
+      end
+
+      expect(agent.provider).to eq(:openai)
+    end
+
+    it "jsonifies a dynamic extra value at read time" do
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "DynamicExtraAgent"
+        end
+        extra { {stop_sequences: ["END"]} }
+      end
+
+      expect(agent.extra).to eq({"stop_sequences" => ["END"]})
+    end
+
+    it "validates a dynamic extra value at read time rather than when declared" do
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "BadDynamicExtraAgent"
+        end
+        extra { "not a hash" }
+      end
+
+      expect { agent.extra }.to raise_error(ArgumentError, "extra must be a Hash")
+    end
+
+    it "inherits a block declaration and resolves it live through the subclass" do
+      system_message = "Be terse."
+      parent = Class.new(TestPlainAgent) do
+        def self.name
+          "DynamicParentAgent"
+        end
+      end
+      parent.system { system_message }
+      subclass = Class.new(parent) do
+        def self.name
+          "DynamicChildAgent"
+        end
+      end
+
+      expect(subclass.system).to eq("Be terse.")
+      system_message = "Be verbose."
+      expect(subclass.system).to eq("Be verbose.")
+    end
+
+    it "removes an inherited block declaration when passed an explicit nil" do
+      parent = Class.new(TestPlainAgent) do
+        def self.name
+          "MaskedDynamicParentAgent"
+        end
+        extra { {stop_sequences: ["END"]} }
+      end
+      subclass = Class.new(parent) do
+        def self.name
+          "MaskedDynamicChildAgent"
+        end
+        extra nil
+      end
+
+      expect(subclass.extra).to be_nil
+      expect(parent.extra).to eq({"stop_sequences" => ["END"]})
+    end
+
+    it "lets a subclass override an inherited plain value with a block" do
+      subclass = Class.new(TestTripAgent) do
+        def self.name
+          "DynamicOverridingTripAgent"
+        end
+        model { "gpt-4o" }
+      end
+
+      expect(subclass.model).to eq("gpt-4o")
+      expect(TestTripAgent.model).to eq("gpt-4")
+    end
+
+    it "raises when both an argument and a block are given" do
+      expect {
+        TestPlainAgent.model("gpt-4o") { "gpt-4o-mini" }
+      }.to raise_error(ArgumentError, "pass either an argument or a block, not both")
+
+      expect {
+        TestPlainAgent.extra({stop_sequences: ["END"]}) { {} }
+      }.to raise_error(ArgumentError, "pass either an argument or a block, not both")
+    end
+
     it "replaces an inherited tool when redeclared in a subclass" do
       subclass = Class.new(TestTripAgent) do
         def self.name
@@ -416,6 +536,21 @@ RSpec.describe PatientLLM::Agent do
       expect(session.reasoning).to eq({"effort" => "medium"})
     end
 
+    it "applies dynamically generated declarations to the session as resolved values" do
+      agent = Class.new(TestPlainAgent) do
+        def self.name
+          "DynamicSessionAgent"
+        end
+        temperature { 0.7 }
+        extra { {stop_sequences: ["END"]} }
+      end
+
+      session = agent.build_session
+
+      expect(session.temperature).to eq(0.7)
+      expect(session.extra).to eq({"stop_sequences" => ["END"]})
+    end
+
     it "lets per-request session options override the agent's declarations" do
       session = TestTripAgent.build_session(temperature: 0.9, instructions: "Answer in haiku.", extra: {stop_sequences: ["END"]})
 
@@ -457,6 +592,19 @@ RSpec.describe PatientLLM::Agent do
     it "forwards a per-request extra session option to the session" do
       with_fake_handler do |captured|
         TestTripAgent.ask("hi", extra: {stop_sequences: ["END"]})
+
+        expect(captured.first[:callback_args][:session]["extra"]).to eq({"stop_sequences" => ["END"]})
+      end
+    end
+
+    it "serializes dynamically generated declarations as resolved values" do
+      agent = Class.new(TestPlainAgent) do
+        extra { {stop_sequences: ["END"]} }
+      end
+      stub_const("DynamicAskAgent", agent)
+
+      with_fake_handler do |captured|
+        agent.ask("hi")
 
         expect(captured.first[:callback_args][:session]["extra"]).to eq({"stop_sequences" => ["END"]})
       end

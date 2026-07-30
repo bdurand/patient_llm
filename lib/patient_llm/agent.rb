@@ -75,26 +75,23 @@ module PatientLLM
       #
       # @param name [Symbol, String, nil] the registered provider name.
       #   Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically; the result is
+      #   coerced to a Symbol at read time.
       # @return [Symbol, nil]
-      def provider(name = NOT_SPECIFIED)
-        if name.equal?(NOT_SPECIFIED)
-          inherited_setting(:provider)
-        else
-          @provider = name&.to_sym
-        end
+      def provider(name = NOT_SPECIFIED, &block)
+        get_or_set_setting(:provider, name, block) { |value| value&.to_sym }
       end
 
       # DSL: get or set the model. The value is inherited from the parent
       # agent class unless set; pass an explicit nil to remove an inherited value.
       #
       # @param value [String, nil] the model name. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [String, nil]
-      def model(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:model)
-        else
-          @model = value
-        end
+      def model(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:model, value, block)
       end
 
       # DSL: get or set the system message. The value is inherited from the
@@ -102,13 +99,11 @@ module PatientLLM
       # inherited value.
       #
       # @param value [String, nil] the system message. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [String, nil]
-      def system(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:system)
-        else
-          @system = value
-        end
+      def system(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:system, value, block)
       end
 
       # DSL: get or set instructions for the last request. These are appended to
@@ -117,13 +112,11 @@ module PatientLLM
       # pass an explicit nil to remove an inherited value.
       #
       # @param value [String, nil] the instructions. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [String, nil]
-      def instructions(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:instructions)
-        else
-          @instructions = value
-        end
+      def instructions(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:instructions, value, block)
       end
 
       # DSL: get or set the sampling temperature. The value is inherited from
@@ -131,13 +124,11 @@ module PatientLLM
       # inherited value.
       #
       # @param value [Numeric, nil] the temperature. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [Numeric, nil]
-      def temperature(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:temperature)
-        else
-          @temperature = value
-        end
+      def temperature(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:temperature, value, block)
       end
 
       # DSL: get or set the reasoning configuration. Accepts a portable effort
@@ -171,13 +162,11 @@ module PatientLLM
       # inherited value.
       #
       # @param value [Integer, nil] the maximum output tokens. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [Integer, nil]
-      def max_output_tokens(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:max_output_tokens)
-        else
-          @max_output_tokens = value
-        end
+      def max_output_tokens(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:max_output_tokens, value, block)
       end
 
       # DSL: get or set the maximum automatic tool-execution rounds. The value
@@ -185,13 +174,11 @@ module PatientLLM
       # nil to remove an inherited value.
       #
       # @param value [Integer, nil] the maximum automatic tool-execution rounds. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
       # @return [Integer, nil]
-      def max_tool_iterations(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:max_tool_iterations)
-        else
-          @max_tool_iterations = value
-        end
+      def max_tool_iterations(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:max_tool_iterations, value, block)
       end
 
       # DSL: get or set provider-specific extra data set on sessions built by
@@ -202,13 +189,15 @@ module PatientLLM
       # value.
       #
       # @param value [Hash, nil] the extra data. Passing and explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically (e.g.
+      #   +extra { LLMConfiguration.extra_hash }+); the result is validated
+      #   and jsonified at read time.
       # @return [Hash, nil]
-      def extra(value = NOT_SPECIFIED)
-        if value.equal?(NOT_SPECIFIED)
-          inherited_setting(:extra)
-        else
-          raise ArgumentError, "extra must be a Hash" unless value.nil? || value.is_a?(Hash)
-          @extra = value.nil? ? nil : PromptBuilder.jsonify(value)
+      def extra(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:extra, value, block) do |resolved|
+          raise ArgumentError, "extra must be a Hash" unless resolved.nil? || resolved.is_a?(Hash)
+          resolved.nil? ? nil : PromptBuilder.jsonify(resolved)
         end
       end
 
@@ -296,7 +285,8 @@ module PatientLLM
         session.user(message) if message
 
         ask_options = options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
-        ask_options[:max_tool_iterations] ||= max_tool_iterations if max_tool_iterations
+        iterations = max_tool_iterations
+        ask_options[:max_tool_iterations] ||= iterations if iterations
 
         agent_callback_args = {"context" => PromptBuilder.jsonify(context || {})}
         callback_name = callback_class_name(callback)
@@ -378,11 +368,16 @@ module PatientLLM
       # @param except [Array<Symbol>] session fields to skip
       # @return [PromptBuilder::Session]
       def apply_configuration(session, except: [])
-        apply_system_message(session) if system && !except.include?(:system)
-        session.instructions = instructions if instructions && !except.include?(:instructions)
-        session.temperature = temperature if temperature && !except.include?(:temperature)
-        session.max_output_tokens = max_output_tokens if max_output_tokens && !except.include?(:max_output_tokens)
-        session.extra = extra if extra && !except.include?(:extra)
+        system_message = system
+        instructions_value = instructions
+        temperature_value = temperature
+        max_output_tokens_value = max_output_tokens
+        extra_value = extra
+        apply_system_message(session, system_message) if system_message && !except.include?(:system)
+        session.instructions = instructions_value if instructions_value && !except.include?(:instructions)
+        session.temperature = temperature_value if temperature_value && !except.include?(:temperature)
+        session.max_output_tokens = max_output_tokens_value if max_output_tokens_value && !except.include?(:max_output_tokens)
+        session.extra = extra_value if extra_value && !except.include?(:extra)
         session.think(**reasoning.transform_keys(&:to_sym)) if reasoning && !except.include?(:reasoning)
         if output_schema && !except.include?(:text)
           session.json_output(output_schema[:schema], name: output_schema[:name], strict: output_schema[:strict])
@@ -435,12 +430,35 @@ module PatientLLM
       # already carries the one applied on the previous turn). Replacing at
       # the same index keeps the response boundary of server-state sessions
       # pointing at the right items.
-      def apply_system_message(session)
+      def apply_system_message(session, message)
         index = session.items.index { |item| item.is_a?(PromptBuilder::Items::Message) && item.system? }
         if index
-          session.items[index] = PromptBuilder::Items::Message.new(role: "system", content: system)
+          session.items[index] = PromptBuilder::Items::Message.new(role: "system", content: message)
         else
-          session.system(system)
+          session.system(message)
+        end
+      end
+
+      # Shared implementation of the scalar get-or-set DSL methods. With no
+      # argument and no block, reads the setting; when the stored value
+      # responds to #call it is called and the result used, so values can be
+      # generated dynamically at request time. With an argument or a block,
+      # stores it; a block or callable argument is stored as-is. The optional
+      # coerce block applies the method's coercion/validation — at set time
+      # for plain values, at read time for a callable's result.
+      def get_or_set_setting(name, value, block, &coerce)
+        if value.equal?(NOT_SPECIFIED) && block.nil?
+          stored = inherited_setting(name)
+          return stored unless stored.respond_to?(:call)
+
+          resolved = stored.call
+          coerce ? coerce.call(resolved) : resolved
+        else
+          raise ArgumentError, "pass either an argument or a block, not both" if !value.equal?(NOT_SPECIFIED) && block
+
+          stored = block || value
+          stored = coerce.call(stored) if coerce && !stored.respond_to?(:call)
+          instance_variable_set(:"@#{name}", stored)
         end
       end
 

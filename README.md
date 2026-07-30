@@ -199,6 +199,19 @@ end
 
 `extra` sets provider-specific extra data on every session the agent builds. The recognized keys depend on the serializer used for the request — for example, the Bedrock Converse serializer maps `guardrail_config`, `stop_sequences`, `additional_model_request_fields`, and `performance_config` into the request payload (see the prompt_builder docs for each serializer's keys). Redeclaring `extra` in a subclass replaces the whole hash, and `continue` re-applies the agent's current value to restored sessions. A per-request `ask(extra: {...})` replaces the declaration for that request; to add to it instead, merge explicitly: `MyAgent.ask(msg, extra: MyAgent.extra.merge(...))`.
 
+### Dynamic values
+
+Every scalar declaration (`provider`, `model`, `system`, `instructions`, `temperature`, `max_output_tokens`, `max_tool_iterations`, and `extra`) also accepts a block in lieu of the argument, or a callable (anything responding to `call`) as the argument. The block or callable is evaluated each time the agent builds or sends a request, so the value can be generated dynamically at runtime:
+
+```ruby
+class ResearchAgent < PatientLLM::Agent
+  extra { LLMConfiguration.extra_hash }
+  temperature -> { AppConfig.llm_temperature }
+end
+```
+
+Validation and coercion (`extra`'s Hash check, `provider`'s symbol coercion) apply to the block's result each time it is evaluated.
+
 ### Inheritance
 
 Subclasses inherit every declaration from their parent agent class, including tools and the output schema — so a base agent can hold shared configuration while subclasses specialize. Inheritance is live: getters fall back to the parent class, so declarations added to the parent later are visible to existing subclasses.
