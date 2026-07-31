@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Callback args are deep-converted to JSON-native values (previously only the top-level keys were stringified).
 - When a tool halts the loop, the remaining tool calls in that round receive a "Tool execution halted" output instead of being skipped, and the synthesized halt message no longer advances the session's response boundary.
 - Requires patient_http 1.3 and prompt_builder 0.3.
-- Minimum Ruby version is now 3.1.
+- Minimum Ruby version is now 3.2.
 
 ### Removed
 
