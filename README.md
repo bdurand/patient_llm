@@ -76,7 +76,7 @@ response.object["summary"]    # parsed structured output per the output schema
 response.usage.output_tokens  # token usage
 ```
 
-Everything the agent declares stays in code — only JSON-safe data (the serialized conversation, the agent's class name, and your `context`) travels through the job queue. Tool handlers, API keys, and hooks are re-resolved in the worker process.
+Everything the agent declares stays in code — only JSON-safe data (the serialized conversation, the agent's class name, your `context`, and the resolved request metadata: provider and serializer names, per-request overrides, and tool-loop counters) travels through the job queue. Tool handlers, API keys, and hooks are re-resolved in the worker process.
 
 ## Prerequisites
 
@@ -149,9 +149,9 @@ end
 PatientHttp.register_secret("custom.api_key") { ENV["CUSTOM_API_KEY"] }
 ```
 
-Provider options: `url`, `headers`, `serializer`, `path`, `params` (merged into every payload), `preprocessors`, `timeout`, and `max_tool_iterations`.
+Provider options: `url`, `headers`, `serializer`, `path`, `params` (merged into every payload), `preprocessors`, `timeout`, `max_tool_iterations`, `api_key` (see [provider presets](#provider-presets)), and `region` (used by region-templated presets such as `:bedrock_runtime`).
 
-Every provider option (except `name` and `preset`) may also be a callable, evaluated each time the provider is looked up — i.e. on every request — so values can be generated dynamically at runtime:
+Every provider option (except `name`, `preset`, and `api_key`) may also be a callable, evaluated each time the provider is looked up — i.e. on every request — so values can be generated dynamically at runtime (`api_key` is consumed at registration time to build the authentication header; a callable key is resolved on the processor side at dispatch):
 
 ```ruby
 PatientLLM.configure do |config|
@@ -181,7 +181,7 @@ PatientHttp::Sidekiq.configure do |config|
 end
 ```
 
-`credentials:` is required and accepts a credential chain (anything responding to `resolve`, like `Aws::CredentialProviderChain`; resolved lazily on the first request), a credentials provider (responding to `credentials`), or a static credentials object (responding to `access_key_id` and `secret_access_key`, like `Aws::Credentials`). The signing `service:` and `region:` can be passed explicitly; when omitted they are derived from each request's URL host for standard `<service>.<region>` AWS endpoints, including dual-stack `api.aws` hosts (`bedrock-runtime.us-east-1.amazonaws.com` and `bedrock-mantle.us-east-1.api.aws` both sign as service `"bedrock"` in region `"us-east-1"`).
+`credentials:` is required and accepts a credential chain (anything responding to `resolve`, like `Aws::CredentialProviderChain`; resolved lazily on the first request), a credentials provider (responding to `credentials`), or a static credentials object (responding to `access_key_id` and `secret_access_key`, like `Aws::Credentials`). The signing `service:` and `region:` can be passed explicitly; when omitted they are derived from each request's URL host for standard `<service>.<region>` AWS endpoints, including dual-stack `api.aws` hosts (`bedrock-runtime.us-east-1.amazonaws.com` signs as service `"bedrock"` in region `"us-east-1"`; `bedrock-mantle.us-east-1.api.aws` signs under its own `"bedrock-mantle"` service name).
 
 The signer needs the [aws-sigv4](https://rubygems.org/gems/aws-sigv4) gem, which is not a dependency of this gem — add it to your bundle (it is included with `aws-sdk-core`, which also provides the credential chain).
 
@@ -209,7 +209,7 @@ end
 
 `instructions` sets system-level instructions for the request. On APIs without a separate instructions field they are appended to the system prompt.
 
-`extra` sets provider-specific extra data on every session the agent builds. The recognized keys depend on the serializer used for the request — for example, the Bedrock Converse serializer maps `guardrail_config`, `stop_sequences`, `additional_model_request_fields`, and `performance_config` into the request payload (see the prompt_builder docs for each serializer's keys). Redeclaring `extra` in a subclass replaces the whole hash, and `continue` re-applies the agent's current value to restored sessions. A per-request `ask(extra: {...})` replaces the declaration for that request; to add to it instead, merge explicitly: `MyAgent.ask(msg, extra: MyAgent.extra.merge(...))`.
+`extra` sets provider-specific extra data on every session the agent builds. The recognized keys depend on the serializer used for the request — for example, the Bedrock Converse serializer maps `guardrail_config`, `stop_sequences`, `additional_model_request_fields`, and `performance_config` into the request payload (see the prompt_builder docs for each serializer's keys). Redeclaring `extra` in a subclass replaces the whole hash, and `continue` re-applies the agent's current value to restored sessions. A per-request `ask(extra: {...})` replaces the declaration for that request; to add to it instead, merge explicitly: `MyAgent.ask(msg, extra: MyAgent.extra.merge(...))`. Session options such as `extra:` are only accepted when `ask` builds the session — passing them to `continue`, or together with a `session:`, raises `ArgumentError`.
 
 ### Dynamic values
 
@@ -228,7 +228,7 @@ Validation and coercion (`extra`'s Hash check, `provider`'s symbol coercion) app
 
 Subclasses inherit every declaration from their parent agent class, including tools and the output schema — so a base agent can hold shared configuration while subclasses specialize. Inheritance is live: getters fall back to the parent class, so declarations added to the parent later are visible to existing subclasses.
 
-Override a setting by redeclaring it, or remove an inherited setting by passing an explicit `nil`:
+Override a setting by redeclaring it, or remove an inherited scalar setting by passing an explicit `nil` (tools and the output schema cannot be removed this way):
 
 ```ruby
 class BaseAgent < PatientLLM::Agent
@@ -275,7 +275,7 @@ When the model responds with tool calls, the gem automatically executes the matc
 
 Each hook receives a single object bundling the whole invocation:
 
-- `completed(response)` and `tool_round(response)` receive a `PatientLLM::Agent::Response` exposing `text`, `object` (parsed structured output), `state` (the serializable session), `usage`, `model`, `tool_calls`, `session`, `context` (what you passed to `ask`/`continue`), `http_response` (the `PatientHttp::Response` — status, headers, body, duration), and `http_request_id`. In `completed` the HTTP exchange is the final request's; in `tool_round` it is that round's.
+- `completed(response)` and `tool_round(response)` receive a `PatientLLM::Agent::Response` exposing `text`, `object` (parsed structured output; `completed` only — an intermediate `tool_round` response has none, and calling `object` there raises `StructuredOutputError`), `state` (the serializable session), `usage`, `model`, `tool_calls`, `session`, `context` (what you passed to `ask`/`continue`), `http_response` (the `PatientHttp::Response` — status, headers, body, duration), and `http_request_id`. In `completed` the HTTP exchange is the final request's; in `tool_round` it is that round's.
 - `failed(failure)` receives a `PatientLLM::Agent::Failure` exposing the `error` (with `error_type`, `message`, and `error_class` delegated for convenience) alongside the same `session`, `state`, `context`, `http_response`, and `http_request_id`. The `http_response` is nil for non-HTTP errors such as timeouts and connection failures.
 
 Both objects support `[]` as a shorthand for reading a context value, so `response[:trip_id]` is the same as `response.context[:trip_id]` (and raises `KeyError` if the key was not passed to `ask`/`continue`).
@@ -351,7 +351,9 @@ end
 ResearchAgent.continue(conversation.state, "Tell me more about that", context: {conversation_id: conversation.id})
 ```
 
-`continue` re-applies the agent's *current* system, tools, and output schema to the restored session, so deploying changes to an agent cleanly affects older conversations.
+`continue` re-applies the agent's *current* model, system, tools, and output schema to the restored session, so deploying changes to an agent cleanly affects older conversations.
+
+Passing an existing `session:` to `ask` is different: the session is sent as-is and the agent's declarations (model, system, tools, output schema) are **not** applied to it. Use `continue` for restored conversations.
 
 ### Inline execution
 
@@ -398,12 +400,12 @@ class LLMCallback
 end
 ```
 
-Each callback may declare any subset of the keywords below, in any order. `PatientLLM.ask` validates your callback's signatures up front and raises an `ArgumentError` if a method uses an unsupported name, a positional parameter, or omits the required keyword.
+Each callback may declare any subset of the keywords below, in any order. `PatientLLM.ask` validates your callback's signatures up front and raises an `ArgumentError` if a method uses an unsupported name or a positional parameter, or if `on_error` omits its required `error` keyword.
 
 | Callback              | Supported keywords                                                          | Required       |
 |-----------------------|-----------------------------------------------------------------------------|----------------|
-| `on_complete`         | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | `llm_response` |
-| `on_tool_use` (optional) | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | `llm_response` |
+| `on_complete`         | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | —              |
+| `on_tool_use` (optional) | `session`, `provider`, `llm_response`, `callback_args`, `http_response`, `request_id` | —              |
 | `on_error`            | `session`, `provider`, `callback_args`, `error`, `http_response`, `request_id`        | `error`        |
 
 ### Making requests
@@ -412,7 +414,7 @@ Create a `PromptBuilder::Session` and call `PatientLLM.ask` to make an async req
 
 ```ruby
 session = PromptBuilder::Session.new(model: "gpt-4o")
-session.system = "You are a helpful assistant."
+session.system("You are a helpful assistant.")
 session.user("What is the capital of France?")
 
 PatientLLM.ask(session, provider: :openai, callback: LLMCallback, callback_args: {
@@ -482,7 +484,7 @@ Or register the PatientHttp inline handler globally for a console or test proces
 
 ### URL composition
 
-The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `path`. When you don't set `path`, it defaults to the path for the active serializer (`/v1/chat/completions` for `:chat_completion`, `/v1/responses` for `:open_responses`, `/v1/messages` for `:messages`, `model/{model}/converse` for `:converse`, `/v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model at dispatch time. If your base URL already includes a `/v1` prefix, override the path to avoid duplication:
+The full request URL is built by concatenating the base URL (from the provider registry or the `url:` option) with the `path`. When you don't set `path`, it defaults to the path for the active serializer (`v1/chat/completions` for `:chat_completion`, `v1/responses` for `:open_responses`, `v1/messages` for `:messages`, `model/{model}/converse` for `:converse`, `v1beta/models/{model}:generateContent` for `:gemini`). A `{model}` placeholder in the path is replaced with the session's model, percent-encoded as a single path segment, at dispatch time. If your base URL already includes a `/v1` prefix, override the path to avoid duplication:
 
 ```ruby
 PatientLLM.ask(session,

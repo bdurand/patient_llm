@@ -698,6 +698,32 @@ RSpec.describe PatientLLM::Agent do
         expect(session.extra).to eq({"stop_sequences" => ["END"]})
       end
     end
+
+    it "re-applies the agent's current model to a restored session" do
+      state = PromptBuilder::Session.new(model: "gpt-3.5-turbo").tap { |s| s.user("First message") }.to_h
+
+      with_fake_handler do |captured|
+        TestTripAgent.continue(state, "Hello")
+
+        session = PromptBuilder::Session.from_h(captured.first[:callback_args][:session])
+        expect(session.model).to eq("gpt-4")
+      end
+    end
+
+    it "leaves the persisted model alone when the agent declares none" do
+      agent_class = Class.new(PatientLLM::Agent) do
+        provider :openai
+      end
+      stub_const("ModellessAgent", agent_class)
+      state = PromptBuilder::Session.new(model: "gpt-3.5-turbo").to_h
+
+      with_fake_handler do |captured|
+        ModellessAgent.continue(state, "Hello")
+
+        session = PromptBuilder::Session.from_h(captured.first[:callback_args][:session])
+        expect(session.model).to eq("gpt-3.5-turbo")
+      end
+    end
   end
 
   describe "completion handling" do
@@ -912,6 +938,41 @@ RSpec.describe PatientLLM::Agent do
       expect(TestTripAgent.recorded).to eq({})
     end
 
+    it "falls back to the agent's hooks when an agent-subclass callback does not override them" do
+      failure_only = Class.new(PatientLLM::Agent) do
+        class << self
+          attr_accessor :recorded
+        end
+
+        def failed(failure)
+          self.class.recorded[:failed] = failure
+        end
+      end
+      stub_const("TestAgentFailureOnlyCallbacks", failure_only)
+      TestAgentFailureOnlyCallbacks.recorded = {}
+
+      with_fake_handler do |captured|
+        TestTripAgent.ask("Plan a trip", callback: TestAgentFailureOnlyCallbacks)
+
+        PatientLLM::Callback.new.on_complete(http_response(text_body('{"summary": "NYC"}'), callback_args: captured.first[:callback_args]))
+      end
+
+      # The delegate only overrides failed; the inherited no-op hooks must not
+      # shadow the agent's own completed hook.
+      expect(TestTripAgent.recorded[:completed]).to be_a(PatientLLM::Agent::Response)
+      expect(TestAgentFailureOnlyCallbacks.recorded).to eq({})
+    end
+
+    it "raises when an agent-subclass callback overrides none of the hooks" do
+      stub_const("HooklessAgentCallbacks", Class.new(PatientLLM::Agent))
+
+      with_fake_handler do
+        expect {
+          TestTripAgent.ask("hi", callback: HooklessAgentCallbacks)
+        }.to raise_error(ArgumentError, /must define at least one of completed, failed, tool_round/)
+      end
+    end
+
     it "behaves like the default when the agent names itself as the callback" do
       with_fake_handler do |captured|
         TestTripAgent.ask("Plan a trip", callback: TestTripAgent)
@@ -1001,7 +1062,7 @@ RSpec.describe PatientLLM::Agent do
       expect(agent.handles_tool?("undeclared")).to be false
     end
 
-    it "does not route declared tools to inherited Object methods" do
+    it "raises rather than routing a declared tool to an inherited Object method" do
       agent_class = Class.new(PatientLLM::Agent) do
         def self.name
           "CollidingToolAgent"
@@ -1012,7 +1073,47 @@ RSpec.describe PatientLLM::Agent do
         tool :freeze, "A tool colliding with Object#freeze"
       end
 
-      expect(agent_class.new.handles_tool?("freeze")).to be false
+      expect {
+        agent_class.new.handles_tool?("freeze")
+      }.to raise_error(NoMethodError, /does not define a public instance method #freeze/)
+    end
+
+    it "raises when a declared tool's handler method is private" do
+      agent_class = Class.new(PatientLLM::Agent) do
+        def self.name
+          "PrivateToolAgent"
+        end
+        provider :openai
+        model "gpt-4"
+
+        tool :search, "Search"
+
+        private
+
+        def search(query: nil)
+          "results"
+        end
+      end
+
+      expect {
+        agent_class.new.handles_tool?("search")
+      }.to raise_error(NoMethodError, /does not define a public instance method #search/)
+    end
+
+    it "raises when a declared tool has no handler method at all" do
+      agent_class = Class.new(PatientLLM::Agent) do
+        def self.name
+          "MissingToolAgent"
+        end
+        provider :openai
+        model "gpt-4"
+
+        tool :lookup, "Lookup with a typo'd handler"
+      end
+
+      expect {
+        agent_class.new.handles_tool?("lookup")
+      }.to raise_error(NoMethodError, /does not define a public instance method #lookup/)
     end
 
     it "handles tools implemented in modules mixed into the agent" do

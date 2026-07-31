@@ -74,7 +74,7 @@ module PatientLLM
       # to remove an inherited value.
       #
       # @param name [Symbol, String, nil] the registered provider name.
-      #   Passing and explicit nil removes the previously set value.
+      #   Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically; the result is
       #   coerced to a Symbol at read time.
@@ -86,7 +86,7 @@ module PatientLLM
       # DSL: get or set the model. The value is inherited from the parent
       # agent class unless set; pass an explicit nil to remove an inherited value.
       #
-      # @param value [String, nil] the model name. Passing and explicit nil removes the previously set value.
+      # @param value [String, nil] the model name. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [String, nil]
@@ -98,7 +98,7 @@ module PatientLLM
       # parent agent class unless set; pass an explicit nil to remove an
       # inherited value.
       #
-      # @param value [String, nil] the system message. Passing and explicit nil removes the previously set value.
+      # @param value [String, nil] the system message. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [String, nil]
@@ -106,12 +106,12 @@ module PatientLLM
         get_or_set_setting(:system, value, block)
       end
 
-      # DSL: get or set instructions for the last request. These are appended to
-      # the system prompt on APIs that don't support instructions as a separate
-      # field. The value is inherited from the parent agent class unless set;
-      # pass an explicit nil to remove an inherited value.
+      # DSL: get or set instructions applied to every request. These are
+      # appended to the system prompt on APIs that don't support instructions
+      # as a separate field. The value is inherited from the parent agent class
+      # unless set; pass an explicit nil to remove an inherited value.
       #
-      # @param value [String, nil] the instructions. Passing and explicit nil removes the previously set value.
+      # @param value [String, nil] the instructions. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [String, nil]
@@ -123,7 +123,7 @@ module PatientLLM
       # the parent agent class unless set; pass an explicit nil to remove an
       # inherited value.
       #
-      # @param value [Numeric, nil] the temperature. Passing and explicit nil removes the previously set value.
+      # @param value [Numeric, nil] the temperature. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [Numeric, nil]
@@ -138,7 +138,7 @@ module PatientLLM
       # explicit nil to remove an inherited value.
       #
       # @param value [Symbol, String, nil] a portable effort level.
-      #   Passing and explicit nil removes the previously set value.
+      #   Passing an explicit nil removes the previously set value.
       # @param effort [Symbol, String, nil] explicit effort level
       # @param budget_tokens [Integer, nil] explicit thinking token budget
       # @return [Hash, nil] the reasoning options
@@ -161,7 +161,7 @@ module PatientLLM
       # the parent agent class unless set; pass an explicit nil to remove an
       # inherited value.
       #
-      # @param value [Integer, nil] the maximum output tokens. Passing and explicit nil removes the previously set value.
+      # @param value [Integer, nil] the maximum output tokens. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [Integer, nil]
@@ -173,7 +173,7 @@ module PatientLLM
       # is inherited from the parent agent class unless set; pass an explicit
       # nil to remove an inherited value.
       #
-      # @param value [Integer, nil] the maximum automatic tool-execution rounds. Passing and explicit nil removes the previously set value.
+      # @param value [Integer, nil] the maximum automatic tool-execution rounds. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically.
       # @return [Integer, nil]
@@ -188,7 +188,7 @@ module PatientLLM
       # replaces the whole hash. Pass an explicit nil to remove an inherited
       # value.
       #
-      # @param value [Hash, nil] the extra data. Passing and explicit nil removes the previously set value.
+      # @param value [Hash, nil] the extra data. Passing an explicit nil removes the previously set value.
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically (e.g.
       #   +extra { LLMConfiguration.extra_hash }+); the result is validated
@@ -206,8 +206,7 @@ module PatientLLM
       # the declared parameters. The schema can be declared with a {Schema}
       # block or passed as a raw JSON Schema hash with parameters:.
       #
-      # @param name [Symbol, String] the tool name (must be a valid method name).
-      #   Passing and explicit nil removes the previously set value.
+      # @param name [Symbol, String] the tool name (must be a valid method name)
       # @param description [String, nil] what the tool does
       # @param parameters [Hash, nil] a raw JSON Schema hash for the parameters
       # @param strict [Boolean, nil] whether strict schema adherence is requested
@@ -267,7 +266,9 @@ module PatientLLM
       # @param context [Hash] JSON-native data available as `context` on the
       #   response/failure objects in hooks and to tool methods
       # @param session [PromptBuilder::Session, nil] an existing session to use
-      #   instead of building a new one
+      #   instead of building a new one. The session is sent as-is; the agent's
+      #   declarations are not applied to it (use {continue} for restored
+      #   conversations).
       # @param callback [Class, String, nil] a named class to receive the
       #   {HOOKS} instead of this agent. A fresh instance is created in the
       #   worker for each invocation; hooks the class does not implement fall
@@ -275,7 +276,10 @@ module PatientLLM
       #   agent. Defaults to sending the hooks to the agent itself.
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       #   (url:, serializer:, path:, headers:, params:, preprocessors:, timeout:,
-      #   max_tool_iterations:)
+      #   max_tool_iterations:), plus session options (model:, temperature:,
+      #   extra:, etc. — any PromptBuilder::Session::INITIALIZE_OPTIONS key)
+      #   applied to the newly built session; session options raise
+      #   ArgumentError when a session: is supplied.
       # @return [Object] handler-specific identifier for the enqueued request
       def ask(message = nil, context: {}, session: nil, callback: nil, **options)
         session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
@@ -303,14 +307,15 @@ module PatientLLM
 
       # Continue a persisted conversation. The session is restored from the
       # state hash (as returned by `response.state`), the agent's *current*
-      # configuration is re-applied to it (so instruction/tool/schema changes
-      # deploy cleanly to older conversations), and the message is sent.
+      # configuration is re-applied to it (so model/instruction/tool/schema
+      # changes deploy cleanly to older conversations), and the message is sent.
       #
       # @param state [Hash] a session state hash from `response.state`
       # @param message [String, Array, Hash, nil] the user message to add
       # @param context [Hash] JSON-native data available as `context` on the response/failure objects in hooks
       # @param options [Hash] per-request overrides forwarded to {ask} (including
-      #   callback:) and {PatientLLM.ask}
+      #   callback:) and {PatientLLM.ask}. Session options (model:, extra:,
+      #   etc.) raise ArgumentError because continue supplies its own session.
       # @return [Object] handler-specific identifier for the enqueued request
       def continue(state, message = nil, context: {}, **options)
         session = PromptBuilder::Session.from_h(state)
@@ -330,6 +335,7 @@ module PatientLLM
       #   callback:) and {PatientLLM.ask}
       # @return [Agent::Response] the final response
       # @raise [PatientHttp::Error] when the request fails
+      # @raise [RuntimeError] when the request completes without capturing a response
       def ask!(message = nil, context: {}, session: nil, **options)
         capture = {}
         previous = Thread.current.thread_variable_get(:patient_llm_agent_capture)
@@ -355,7 +361,6 @@ module PatientLLM
       def build_session(**options)
         session = PromptBuilder::Session.new(**options)
         apply_configuration(session, except: options.keys)
-        session.model ||= model
         session
       end
 
@@ -369,11 +374,13 @@ module PatientLLM
       # @return [PromptBuilder::Session]
       def apply_configuration(session, except: [])
         system_message = system
+        model_value = model
         instructions_value = instructions
         temperature_value = temperature
         max_output_tokens_value = max_output_tokens
         extra_value = extra
         apply_system_message(session, system_message) if system_message && !except.include?(:system)
+        session.model = model_value if model_value && !except.include?(:model)
         session.instructions = instructions_value if instructions_value && !except.include?(:instructions)
         session.temperature = temperature_value if temperature_value && !except.include?(:temperature)
         session.max_output_tokens = max_output_tokens_value if max_output_tokens_value && !except.include?(:max_output_tokens)
@@ -418,11 +425,19 @@ module PatientLLM
 
         callback_class = PatientHttp::ClassHelper.resolve_class_name(name)
         raise ArgumentError, "callback #{name} is not a class" unless callback_class.is_a?(Class)
-        unless HOOKS.any? { |hook| callback_class.method_defined?(hook) }
+        unless HOOKS.any? { |hook| hook_implemented_by?(callback_class, hook) }
           raise ArgumentError, "#{callback_class} must define at least one of #{HOOKS.join(", ")} to be used as a callback"
         end
 
         name
+      end
+
+      # Whether a class implements a hook itself. The no-op hook defaults every
+      # Agent subclass inherits from PatientLLM::Agent do not count, so an
+      # Agent subclass used as a :callback only takes over the hooks it
+      # actually overrides.
+      def hook_implemented_by?(klass, hook)
+        klass.method_defined?(hook) && klass.instance_method(hook).owner != PatientLLM::Agent
       end
 
       # Set the agent's system message on the session, replacing an existing
@@ -576,22 +591,24 @@ module PatientLLM
     end
 
     # Plumbing: whether this agent handles the named tool with an instance
-    # method. Used by {Callback} to route tool execution. Only methods defined
-    # by the agent class hierarchy (or modules mixed into it) count as
+    # method. Used by {Callback} to route tool execution. Only public methods
+    # defined by the agent class hierarchy (or modules mixed into it) count as
     # handlers — a declared tool name that collides with an inherited Object
-    # method must not route LLM-controlled invocations to it.
+    # method must not route LLM-controlled invocations to it. A declared tool
+    # with no valid handler raises rather than returning false so a private
+    # handler or a typo'd method name fails loudly instead of producing a
+    # bogus completion.
     #
     # @api private
     def handles_tool?(name)
       return false unless self.class.tool_declared?(name)
 
       method_name = name.to_sym
-      return false unless respond_to?(method_name)
+      unless respond_to?(method_name) && tool_method_owned_by_agent?(method_name)
+        raise NoMethodError, "#{self.class} declares tool #{name.to_s.inspect} but does not define a public instance method ##{method_name} to handle it"
+      end
 
-      ancestors = singleton_class.ancestors
-      owner_index = ancestors.index(method(method_name).owner)
-      agent_index = ancestors.index(PatientLLM::Agent)
-      !owner_index.nil? && !agent_index.nil? && owner_index < agent_index
+      true
     end
 
     # Plumbing: invoke the tool's instance method with the LLM-provided
@@ -646,9 +663,14 @@ module PatientLLM
     private
 
     # Send a user-facing hook to the class passed as the :callback option to
-    # ask when it implements that hook, otherwise to this agent.
+    # ask when it implements that hook, otherwise to this agent. A hook the
+    # delegate merely inherits from PatientLLM::Agent (the no-op defaults on
+    # every Agent subclass) does not count as implemented.
     def dispatch_hook(name, argument)
-      target = @callback_delegate&.respond_to?(name) ? @callback_delegate : self
+      target = self
+      if @callback_delegate.respond_to?(name) && @callback_delegate.method(name).owner != PatientLLM::Agent
+        target = @callback_delegate
+      end
       target.public_send(name, argument)
     end
 
@@ -669,6 +691,15 @@ module PatientLLM
     # The context passed to ask/continue, as stored in the callback args.
     def extract_context(callback_args)
       PatientHttp::CallbackArgs.new((callback_args && callback_args[:context]) || {})
+    end
+
+    # Whether the method is defined by the agent class hierarchy (or modules
+    # mixed into it) rather than inherited from PatientLLM::Agent or Object.
+    def tool_method_owned_by_agent?(method_name)
+      ancestors = singleton_class.ancestors
+      owner_index = ancestors.index(method(method_name).owner)
+      agent_index = ancestors.index(PatientLLM::Agent)
+      !owner_index.nil? && !agent_index.nil? && owner_index < agent_index
     end
 
     def tool_accepts_context?(name)

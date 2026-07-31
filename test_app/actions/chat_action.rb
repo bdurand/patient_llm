@@ -59,9 +59,11 @@ class ChatAction
       PromptBuilder::Session.new(model: params["model"])
     end
 
-    # Apply settings
-    if params["system_prompt"] && !params["system_prompt"].empty?
-      session.system = params["system_prompt"] || "You are a helpful assistant."
+    # Apply settings. The system prompt is only added to new sessions;
+    # session.system appends a message, so applying it to a restored session
+    # would accumulate a duplicate system message on every turn.
+    if params["system_prompt"] && !params["system_prompt"].empty? && !params["session"]
+      session.system(params["system_prompt"])
     end
 
     thinking_enabled = params["thinking_enabled"]

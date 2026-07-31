@@ -18,8 +18,10 @@ module PatientLLM
   # the response text via `response.text`, token usage via `response.usage`,
   # and model id via `response.model`.
   class Callback
-    # Default maximum number of tool-execution rounds before the loop raises.
-    # Configurable per provider or per request with the max_tool_iterations option.
+    # Default maximum number of tool-execution rounds before the loop stops and
+    # routes a `PatientHttp::RequestError` (error type :max_tool_iterations) to
+    # the user callback's on_error method. Configurable per provider or per
+    # request with the max_tool_iterations option.
     MAX_TOOL_ITERATIONS = 10
 
     # Supported keyword parameters for each user callback method, along with the

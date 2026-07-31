@@ -133,6 +133,23 @@ RSpec.describe PatientLLM do
           PatientLLM.ask(no_model_session, provider: :openai, callback: "TestCallback", path: "v1beta/models/{model}:generateContent")
         }.to raise_error(ArgumentError, /\{model\} placeholder/)
       end
+
+      it "substitutes a plain model id into the {model} placeholder unchanged" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", path: "model/{model}/converse")
+          expect(captured.call[:request].url.to_s).to end_with("/model/gpt-4/converse")
+        end
+      end
+
+      it "percent-encodes the model as a single path segment in the {model} placeholder" do
+        arn = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
+        encoded = "arn%3Aaws%3Abedrock%3Aus-east-1%3A123456789012%3Ainference-profile%2Fus.anthropic.claude-sonnet-4-20250514-v1%3A0"
+        arn_session = PromptBuilder::Session.new(model: arn).tap { |s| s.user("Hello") }
+        with_fake_handler do |captured|
+          PatientLLM.ask(arn_session, provider: :openai, callback: "TestCallback", path: "model/{model}/converse")
+          expect(URI.parse(captured.call[:request].url.to_s).path).to eq("/model/#{encoded}/converse")
+        end
+      end
     end
 
     describe "header merging" do

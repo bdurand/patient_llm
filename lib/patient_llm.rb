@@ -19,10 +19,9 @@ module PatientLLM
   autoload :Schema, File.expand_path("patient_llm/schema", __dir__)
   autoload :StructuredOutputError, File.expand_path("patient_llm/structured_output_error", __dir__)
 
-  # Default API paths per serializer format. The Gemini path embeds a
-  # `{model}` placeholder that is replaced with the session's model at
-  # dispatch time, matching Google's `/v1beta/models/{model}:generateContent`
-  # endpoint.
+  # Default API paths per serializer format. The Bedrock Converse and Gemini
+  # paths embed a `{model}` placeholder that is replaced with the session's
+  # model (percent-encoded as a single path segment) at dispatch time.
   SERIALIZER_PATHS = {
     chat_completion: "v1/chat/completions",
     open_responses: "v1/responses",
@@ -198,7 +197,10 @@ module PatientLLM
       if resolved_path.include?("{model}")
         raise ArgumentError, "The endpoint path #{resolved_path.inspect} includes a {model} placeholder but session.model is not set" if session.model.nil?
 
-        resolved_path = resolved_path.gsub("{model}", session.model.to_s)
+        # Encode the model as a single path segment; Bedrock model ids can be
+        # ARNs containing ":" and "/" that would otherwise splice extra path
+        # segments into the URL and break SigV4 signing.
+        resolved_path = resolved_path.gsub("{model}", URI.encode_uri_component(session.model.to_s))
       end
 
       resolved_headers = (provider_config[:headers] || {}).merge(request_options["headers"] || {})
