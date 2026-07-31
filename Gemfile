@@ -19,5 +19,3 @@ unless ENV["DEPENDABOT"]
     gem "yard", require: false
   end
 end
-
-gem "prompt_builder", path: "../prompt_builder" # local development path
