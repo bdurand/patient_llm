@@ -167,6 +167,54 @@ RSpec.describe PatientLLM::Callback do
         expect(callback_args[:user_id]).to eq("123")
       end
     end
+
+    it "falls back to the HTTP response's request id when original_request_id is nil" do
+      http_response = PatientHttp::Response.new(
+        callback_args: callback_args.merge(original_request_id: nil),
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 500,
+        headers: {},
+        body: "boom",
+        duration: 1.0,
+        request_id: "req-http-1"
+      )
+      http_error = instance_double(
+        PatientHttp::HttpError,
+        callback_args: callback_args.merge(original_request_id: nil),
+        response: http_response
+      )
+
+      callback.on_error(http_error)
+
+      expect(test_callback_instance).to have_received(:on_error) do |request_id:, **|
+        expect(request_id).to eq("req-http-1")
+      end
+    end
+
+    it "prefers the original request id from the callback args" do
+      http_response = PatientHttp::Response.new(
+        callback_args: callback_args.merge(original_request_id: "req-original"),
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 500,
+        headers: {},
+        body: "boom",
+        duration: 1.0,
+        request_id: "req-http-2"
+      )
+      http_error = instance_double(
+        PatientHttp::HttpError,
+        callback_args: callback_args.merge(original_request_id: "req-original"),
+        response: http_response
+      )
+
+      callback.on_error(http_error)
+
+      expect(test_callback_instance).to have_received(:on_error) do |request_id:, **|
+        expect(request_id).to eq("req-original")
+      end
+    end
   end
 
   describe "non-JSON responses" do
@@ -330,6 +378,59 @@ RSpec.describe PatientLLM::Callback do
       ensure
         PatientHttp.unregister_handler
       end
+    end
+
+    it "parses the response with the serializer bound in callback_args even when the provider config differs" do
+      # Regression: the serializer resolved at enqueue must win over the
+      # worker-side provider configuration to prevent build/parse drift.
+      args = callback_args_with_tools.merge(serializer: "chat_completion", provider: "anthropic_drift")
+      PatientLLM.configure do |c|
+        c.provider :anthropic_drift, url: "https://api.anthropic.com", serializer: :messages
+      end
+
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: '{"model":"gpt-4","choices":[{"message":{"role":"assistant","content":"parsed"}}]}',
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      received = nil
+      test_callback = instance_double(TestCallback)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+      allow(test_callback).to receive(:on_complete) { |llm_response:, **| received = llm_response.text }
+
+      callback.on_complete(response)
+
+      expect(received).to eq("parsed")
+    end
+
+    it "respects a custom max_tool_iterations from callback_args" do
+      args = callback_args_with_tools.merge(max_tool_iterations: 2, tool_iteration: 2)
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(tool_call_body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      captured_error = nil
+      test_callback = instance_double(TestCallback)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+      allow(test_callback).to receive(:on_error) { |error:, **| captured_error = error }
+
+      callback.on_complete(response)
+
+      expect(captured_error.error_type).to eq(:max_tool_iterations)
+      expect(captured_error.message).to match(/exceeded 2 iterations/)
     end
 
     it "invokes on_error when MAX_TOOL_ITERATIONS is exceeded" do
@@ -552,6 +653,73 @@ RSpec.describe PatientLLM::Callback do
       expect(test_callback).to have_received(:on_complete) do |llm_response:, **|
         expect(llm_response).to be_a(PromptBuilder::Response)
         expect(llm_response.text).to eq("Stopped: go")
+      end
+    end
+
+    it "adds outputs for tool calls remaining after a HaltError so the session stays continuable" do
+      second_tool_invoked = false
+      PromptBuilder.reset_tool_registry!
+      PromptBuilder.register_tool("halting", description: "halting", parameters: {type: "object", properties: {}}) do |args|
+        raise PatientLLM::HaltError.new(content: "Stopped")
+      end
+      PromptBuilder.register_tool("after_halt", description: "after halt", parameters: {type: "object", properties: {}}) do |args|
+        second_tool_invoked = true
+        "should not run"
+      end
+
+      session = PromptBuilder::Session.new(model: "gpt-4")
+      session.user("Hello")
+      session.register_tool("halting", description: "halting", parameters: {type: "object", properties: {}})
+      session.register_tool("after_halt", description: "after halt", parameters: {type: "object", properties: {}})
+
+      args = {
+        session: session.to_h,
+        provider: "openai",
+        callback: "TestCallback",
+        custom: {},
+        request_options: {},
+        tool_iteration: 0
+      }
+
+      body = {
+        "choices" => [
+          {
+            "message" => {
+              "role" => "assistant",
+              "content" => nil,
+              "tool_calls" => [
+                {"id" => "call_halt", "type" => "function", "function" => {"name" => "halting", "arguments" => "{}"}},
+                {"id" => "call_after", "type" => "function", "function" => {"name" => "after_halt", "arguments" => "{}"}}
+              ]
+            }
+          }
+        ],
+        "model" => "gpt-4"
+      }
+
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://api.openai.com/v1/chat/completions",
+        status: 200,
+        headers: {"content-type" => "application/json"},
+        body: JSON.generate(body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      test_callback = instance_double(TestCallback, on_complete: nil)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+
+      callback.on_complete(response)
+
+      expect(second_tool_invoked).to be false
+      expect(test_callback).to have_received(:on_complete) do |llm_response:, session:, **|
+        expect(llm_response.text).to eq("Stopped")
+
+        outputs = session.items.select { |item| item.is_a?(PromptBuilder::Items::FunctionCallOutput) }
+        expect(outputs.map(&:call_id)).to eq(["call_halt", "call_after"])
+        expect(outputs.last.output).to eq("Tool execution halted")
       end
     end
   end

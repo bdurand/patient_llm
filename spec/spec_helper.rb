@@ -1,6 +1,24 @@
 # frozen_string_literal: true
 
+# Suppress the IO::Buffer experimental warning triggered by io-event (via async-http)
+Warning[:experimental] = false
+
 require "bundler/setup"
+
+# SimpleCov must be started before requiring the lib
+begin
+  require "simplecov"
+  SimpleCov.start do
+    add_filter "/spec/"
+    enable_coverage :branch
+  end
+rescue LoadError
+  # SimpleCov is not available
+end
+
+Bundler.require(:default, :test)
+
+require "webmock/rspec"
 
 require_relative "../lib/patient_llm"
 
@@ -12,6 +30,9 @@ class TestCallback
   def on_error(session:, provider:, callback_args:, error:, http_response:, request_id:)
   end
 end
+
+# Register the test secret so inline execution can resolve it
+PatientHttp.register_secret("openai.api_key", "test-api-key")
 
 # Configure a test provider
 PatientLLM.configure do |config|

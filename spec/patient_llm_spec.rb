@@ -4,7 +4,8 @@ require "spec_helper"
 
 RSpec.describe PatientLLM do
   let(:session) do
-    PromptBuilder::Session.new(model: "gpt-4").tap { |s| s.user("Hello") }
+    # max_output_tokens is set because the :messages serializer requires it
+    PromptBuilder::Session.new(model: "gpt-4", max_output_tokens: 1000).tap { |s| s.user("Hello") }
   end
 
   # Captures the request sent to PatientHttp and returns a fake request id.
@@ -120,12 +121,33 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "accepts the deprecated completion_path argument as an alias for path" do
+      it "does not accept the removed completion_path argument" do
+        expect {
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
+        }.to raise_error(ArgumentError, /completion_path/)
+      end
+
+      it "raises when the path includes {model} but the session has no model" do
+        no_model_session = PromptBuilder::Session.new.tap { |s| s.user("Hello") }
+        expect {
+          PatientLLM.ask(no_model_session, provider: :openai, callback: "TestCallback", path: "v1beta/models/{model}:generateContent")
+        }.to raise_error(ArgumentError, /\{model\} placeholder/)
+      end
+
+      it "substitutes a plain model id into the {model} placeholder unchanged" do
         with_fake_handler do |captured|
-          expect do
-            PatientLLM.ask(session, provider: :openai, callback: "TestCallback", completion_path: "/custom/endpoint")
-          end.to output(/completion_path.*deprecated/).to_stderr
-          expect(captured.call[:request].url.to_s).to end_with("/custom/endpoint")
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", path: "model/{model}/converse")
+          expect(captured.call[:request].url.to_s).to end_with("/model/gpt-4/converse")
+        end
+      end
+
+      it "percent-encodes the model as a single path segment in the {model} placeholder" do
+        arn = "arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
+        encoded = "arn%3Aaws%3Abedrock%3Aus-east-1%3A123456789012%3Ainference-profile%2Fus.anthropic.claude-sonnet-4-20250514-v1%3A0"
+        arn_session = PromptBuilder::Session.new(model: arn).tap { |s| s.user("Hello") }
+        with_fake_handler do |captured|
+          PatientLLM.ask(arn_session, provider: :openai, callback: "TestCallback", path: "model/{model}/converse")
+          expect(URI.parse(captured.call[:request].url.to_s).path).to eq("/model/#{encoded}/converse")
         end
       end
     end
@@ -302,11 +324,10 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "includes tool_iteration" do
-        with_fake_handler do |captured|
+      it "does not accept the internal tool_iteration argument" do
+        expect {
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", tool_iteration: 3)
-          expect(captured.call[:callback_args][:tool_iteration]).to eq(3)
-        end
+        }.to raise_error(ArgumentError)
       end
 
       it "defaults tool_iteration to 0" do
@@ -350,19 +371,39 @@ RSpec.describe PatientLLM do
         end
       end
 
-      it "records params override in request_options" do
+      it "records params override in request_options with JSON-native keys and values" do
         with_fake_handler do |captured|
-          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", params: {top_p: 0.9})
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", params: {top_p: 0.9, service_tier: :flex})
           options = captured.call[:callback_args][:request_options]
-          expect(options["params"]).to eq({top_p: 0.9})
+          expect(options["params"]).to eq({"top_p" => 0.9, "service_tier" => "flex"})
         end
       end
 
-      it "records preprocessors override in request_options" do
+      it "records preprocessors override in request_options as strings" do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback", preprocessors: :aws_sigv4)
           options = captured.call[:callback_args][:request_options]
-          expect(options["preprocessors"]).to eq(:aws_sigv4)
+          expect(options["preprocessors"]).to eq("aws_sigv4")
+        end
+      end
+
+      it "produces callback args that pass PatientHttp's JSON-native validation" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(
+            session,
+            provider: :openai,
+            callback: "TestCallback",
+            callback_args: {status: :new, nested: {kind: :trip}},
+            params: {service_tier: :flex},
+            headers: {"X-Foo" => "bar"},
+            preprocessors: [:sign_a, :sign_b]
+          )
+          args = captured.call[:callback_args]
+          expect {
+            args.each { |key, value| PatientHttp::CallbackArgs.validate_value!(value, key.to_s) }
+          }.not_to raise_error
+          expect(args[:custom]).to eq({"status" => "new", "nested" => {"kind" => "trip"}})
+          expect(args[:request_options]["preprocessors"]).to eq(["sign_a", "sign_b"])
         end
       end
 

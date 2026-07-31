@@ -21,12 +21,13 @@ class ChatAction
     serializer_override = nil
     headers_override = nil
     provider = :test
+    agent_class = nil
 
     if provider_name && provider_name != "custom" && PremiumProviders::PROVIDERS.key?(provider_name)
-      provider = provider_name.to_sym
-      model = params["model"].to_s
-      path_override = PremiumProviders.path(provider_name, model)
-      effective_serializer = PremiumProviders::PROVIDERS[provider_name][:serializer]
+      # Premium providers dispatch through their Agent class so the test app
+      # exercises the declarative agent path.
+      agent_class = ChatAgent.for_provider(provider_name)
+      effective_serializer = PremiumProviders.serializer(provider_name)
     else
       if api_url
         uri = URI.parse(api_url)
@@ -58,9 +59,11 @@ class ChatAction
       PromptBuilder::Session.new(model: params["model"])
     end
 
-    # Apply settings
-    if params["system_prompt"] && !params["system_prompt"].empty?
-      session.instructions = params["system_prompt"] || "You are a helpful assistant."
+    # Apply settings. The system prompt is only added to new sessions;
+    # session.system appends a message, so applying it to a restored session
+    # would accumulate a duplicate system message on every turn.
+    if params["system_prompt"] && !params["system_prompt"].empty? && !params["session"]
+      session.system(params["system_prompt"])
     end
 
     thinking_enabled = params["thinking_enabled"]
@@ -70,31 +73,20 @@ class ChatAction
     end
 
     if thinking_enabled
-      case effective_serializer
-      when :converse
-        # Converse does not support reasoning; skip
-      when :chat_completion, :open_responses, :gemini
-        # These serializers only support effort
-        session.reasoning = {effort: params["thinking_effort"] || "medium"}
-      when :messages
-        # Messages requires budget_tokens and max_output_tokens > budget_tokens
+      if effective_serializer == :messages
+        # Messages uses an explicit thinking budget
         budget = params["thinking_budget"].to_i
         budget = 10000 if budget < 1
-        session.reasoning = {budget_tokens: budget}
+        session.think(budget_tokens: budget)
       else
-        session.reasoning = {effort: params["thinking_effort"] || "medium"}
+        # Everything else takes a portable effort level (Converse warns and skips)
+        session.think(effort: params["thinking_effort"] || "medium")
       end
     end
 
     if params["schema"] && !params["schema"].empty?
       begin
-        schema = JSON.parse(params["schema"])
-        session.text = {
-          format: {
-            type: "json_schema",
-            json_schema: {name: "response", schema: schema}
-          }
-        }
+        session.json_output(JSON.parse(params["schema"]))
       rescue JSON::ParserError
         # Ignore invalid schema
       end
@@ -158,16 +150,15 @@ class ChatAction
     if params["tools_enabled"]
       allowed_tools = params["allowed_tools"]
       if allowed_tools.is_a?(Array) && !allowed_tools.empty?
-        allowed_tools.each do |tool_name|
-          definition = PromptBuilder.tool_registry.definition_for(tool_name)
-          session.register_tool(definition.name, description: definition.description, parameters: definition.parameters, strict: definition.strict) if definition
-        end
+        known_tools = allowed_tools.select { |name| PromptBuilder.tool_registry.definition_for(name) }
+        session.use_tools(*known_tools) unless known_tools.empty?
       else
-        session.register_tools(PromptBuilder.tool_registry)
+        session.use_tools
       end
     end
 
-    # Add the user message (with optional attachments)
+    # Build the user message content (with optional attachments)
+    message_content = user_message
     file_attachments = params["attachments"]
     if file_attachments.is_a?(Array) && !file_attachments.empty?
       content = []
@@ -193,23 +184,34 @@ class ChatAction
           end
         end
       end
-      session.user(content)
-    else
-      session.user(user_message)
+      message_content = content
     end
 
     request_id = SecureRandom.uuid
 
-    PatientLLM.ask(
-      session,
-      provider: provider,
-      callback: LLMCallback,
-      callback_args: {request_id: request_id, start_time: Time.now.to_f},
-      url: url_override,
-      serializer: serializer_override,
-      path: path_override,
-      headers: headers_override
-    )
+    if agent_class
+      # The agent adds the message, dispatches with its declared provider, and
+      # handles the response through its completed/failed/tool_round hooks.
+      # Tool calls are executed by the agent's instance methods.
+      agent_class.ask(
+        message_content,
+        session: session,
+        context: {request_id: request_id, start_time: Time.now.to_f}
+      )
+    else
+      session.user(message_content)
+
+      PatientLLM.ask(
+        session,
+        provider: provider,
+        callback: LLMCallback,
+        callback_args: {request_id: request_id, start_time: Time.now.to_f},
+        url: url_override,
+        serializer: serializer_override,
+        path: path_override,
+        headers: headers_override
+      )
+    end
 
     [202, {"content-type" => "application/json"}, [{status: "accepted", request_id: request_id}.to_json]]
   rescue PromptBuilder::UnsupportedFormatError => e

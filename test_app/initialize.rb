@@ -22,19 +22,26 @@ Sidekiq.configure_client do |config|
   config.redis = {url: AppConfig.redis_url}
 end
 
-# Configure LLM providers
+# Configure LLM providers. Presets supply each vendor's URL, serializer, auth
+# header, and key format; api_key registers the key with PatientHttp so no
+# separate register_secret step is needed.
 PatientLLM.configure do |config|
   config.provider :test,
     url: AppConfig.llm_api_base,
+    serializer: :chat_completion,
     headers: {}
 
-  # Register premium providers whose API keys are present
-  PremiumProviders.available.each do |name, provider_config|
-    config.provider name.to_sym,
-      url: PremiumProviders.base_url(name),
-      headers: PremiumProviders.auth_header(name),
-      serializer: provider_config[:serializer],
-      preprocessors: PremiumProviders.preprocessors(name)
+  PremiumProviders.available.each_key do |name|
+    if name == "bedrock"
+      region = ENV.fetch("BEDROCK_REGION", "us-east-1")
+      if PremiumProviders.bedrock_sigv4?
+        config.provider :bedrock, preset: :bedrock_runtime, region: region, preprocessors: :aws_sigv4
+      else
+        config.provider :bedrock, preset: :bedrock_runtime, region: region, api_key: PremiumProviders.api_key(name)
+      end
+    else
+      config.provider name.to_sym, preset: name.to_sym, api_key: PremiumProviders.api_key(name)
+    end
   end
 end
 
@@ -53,34 +60,25 @@ PatientHttp::Sidekiq.configure do |config|
       },
       timestamp: Time.now.iso8601
     }
-    request_id = error.callback_args[:request_id]
-    start_time = error.callback_args[:start_time]
+    # Agent requests carry the request id inside the agent context; the
+    # LLMCallback path passes it at the top level.
+    agent_context = error.callback_args[:context] || {}
+    request_id = error.callback_args[:request_id] || agent_context["request_id"]
+    start_time = error.callback_args[:start_time] || agent_context["start_time"]
     total_duration = Time.now.to_f - start_time if start_time
     ChatService.set_result(request_id, result, total_duration)
   end
 
   if PremiumProviders.bedrock_sigv4?
-    config.register_preprocessor(:aws_sigv4) do |request|
-      signer = Aws::Sigv4::Signer.new(
-        service: "bedrock",
-        region: ENV.fetch("BEDROCK_REGION", "us-east-1"),
-        credentials_provider: Aws::CredentialProviderChain.new.resolve
-      )
-      signature = signer.sign_request(
-        http_method: request.http_method.to_s.upcase,
-        url: request.url,
-        headers: request.headers.to_h,
-        body: request.body.to_s
-      )
-      signature.headers.each { |name, value| request.headers[name] = value }
-    end
-  end
-
-  PremiumProviders.available.each_key do |name|
-    next if name == "bedrock" && PremiumProviders.bedrock_sigv4?
-    config.register_secret("#{name}.api_key") { PremiumProviders.auth_header_value(name) }
+    config.register_preprocessor(:aws_sigv4, PatientLLM::AwsRequestSigner.new(
+      credentials: Aws::CredentialProviderChain.new
+    ))
   end
 end
+
+# Surface any wiring mistakes (missing secrets, preprocessors, or handlers) at
+# boot instead of at dispatch time inside a job.
+PatientLLM.verify_configuration!
 
 # Register tools
 PromptBuilder.tool_registry.register(

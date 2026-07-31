@@ -1,35 +1,15 @@
 # frozen_string_literal: true
 
+# UI metadata for the premium providers exposed by the test app. All of the
+# vendor plumbing (URLs, serializers, auth headers, key formats, endpoint
+# paths) comes from the PatientLLM presets; this table only holds what the
+# test app UI needs.
 module PremiumProviders
   PROVIDERS = {
-    "openai" => {
-      label: "OpenAI",
-      env_key: "OPENAI_API_KEY",
-      url: "https://api.openai.com",
-      default_model: "gpt-5.4-nano",
-      serializer: :open_responses
-    },
-    "anthropic" => {
-      label: "Anthropic",
-      env_key: "ANTHROPIC_API_KEY",
-      url: "https://api.anthropic.com",
-      default_model: "claude-haiku-4-5",
-      serializer: :messages
-    },
-    "gemini" => {
-      label: "Gemini",
-      env_key: "GEMINI_API_KEY",
-      url: "https://generativelanguage.googleapis.com",
-      default_model: "gemini-3.1-flash-lite",
-      serializer: :gemini
-    },
-    "bedrock" => {
-      label: "Bedrock",
-      env_key: "BEDROCK_API_KEY",
-      url: "https://bedrock-runtime.%{region}.amazonaws.com",
-      default_model: "moonshotai.kimi-k2.5",
-      serializer: :converse
-    }
+    "openai" => {label: "OpenAI", env_key: "OPENAI_API_KEY", default_model: "gpt-5.4-nano"},
+    "anthropic" => {label: "Anthropic", env_key: "ANTHROPIC_API_KEY", default_model: "claude-haiku-4-5"},
+    "gemini" => {label: "Gemini", env_key: "GEMINI_API_KEY", default_model: "gemini-3.1-flash-lite"},
+    "bedrock" => {label: "Bedrock", env_key: "BEDROCK_API_KEY", default_model: "moonshotai.kimi-k2.5"}
   }.freeze
 
   class << self
@@ -43,6 +23,23 @@ module PremiumProviders
         key = ENV[config[:env_key]]
         (key && !key.empty?) || (name == "bedrock" && bedrock_sigv4?)
       end
+    end
+
+    # The serializer for a registered provider, from the PatientLLM registry.
+    #
+    # @param provider_name [String] the provider identifier
+    # @return [Symbol, nil] the serializer name
+    def serializer(provider_name)
+      PatientLLM.provider(provider_name)&.dig(:serializer)
+    end
+
+    # A lambda that resolves the provider's API key from the environment.
+    #
+    # @param provider_name [String] the provider identifier
+    # @return [Proc] the API key resolver
+    def api_key(provider_name)
+      env_key = PROVIDERS.fetch(provider_name).fetch(:env_key)
+      -> { ENV.fetch(env_key) }
     end
 
     # True when the AWS default credential chain resolves. When true, Bedrock
@@ -65,71 +62,6 @@ module PremiumProviders
       end
     end
 
-    # Returns the preprocessor names for a provider, or nil.
-    #
-    # @param provider_name [String] the provider identifier
-    # @return [Symbol, nil] the preprocessor name
-    def preprocessors(provider_name)
-      :aws_sigv4 if provider_name.to_s == "bedrock" && bedrock_sigv4?
-    end
-
-    # Returns the auth headers for a given provider. SigV4 signing sets the
-    # Authorization header itself, so bedrock gets no bearer header in that mode.
-    #
-    # @param provider_name [String] the provider identifier
-    # @return [Hash] headers hash with the appropriate auth key and secret
-    def auth_header(provider_name)
-      return {} if provider_name == "bedrock" && bedrock_sigv4?
-
-      secret_name = "#{provider_name}.api_key"
-      secret_value = PatientHttp.secret(secret_name)
-      case provider_name
-      when "anthropic"
-        {"x-api-key" => secret_value}
-      when "gemini"
-        {"x-goog-api-key" => secret_value}
-      else
-        {"authorization" => secret_value}
-      end
-    end
-
-    # Returns the formatted auth header value for a provider.
-    #
-    # @param provider_name [String] the provider identifier
-    # @return [String, nil] the formatted header value
-    def auth_header_value(provider_name)
-      return nil if provider_name == "bedrock" && bedrock_sigv4?
-
-      config = PROVIDERS[provider_name]
-      return nil unless config
-
-      value = ENV[config[:env_key]]
-      return nil if value.nil? || value.empty?
-
-      case provider_name
-      when "anthropic"
-        value
-      when "gemini"
-        value
-      else
-        "Bearer #{value}"
-      end
-    end
-
-    # Returns the endpoint path for a provider, substituting the model name where needed.
-    #
-    # @param provider_name [String] the provider identifier
-    # @param model [String] the model name
-    # @return [String, nil] the endpoint path or nil for default
-    def path(provider_name, model)
-      case provider_name
-      when "gemini"
-        "/v1beta/models/#{model}:generateContent"
-      when "bedrock"
-        "/model/#{model}/converse"
-      end
-    end
-
     # True when the environment suggests AWS credentials may be configured.
     #
     # @return [Boolean]
@@ -137,22 +69,6 @@ module PremiumProviders
       return true if ENV["AWS_ACCESS_KEY_ID"] || ENV["AWS_PROFILE"]
 
       File.exist?(File.expand_path("~/.aws/credentials")) || File.exist?(File.expand_path("~/.aws/config"))
-    end
-
-    # Returns the resolved base URL for a provider.
-    #
-    # @param provider_name [String] the provider identifier
-    # @return [String] the base URL
-    def base_url(provider_name)
-      config = PROVIDERS[provider_name]
-      return unless config
-
-      if provider_name == "bedrock"
-        region = ENV.fetch("BEDROCK_REGION", "us-east-1")
-        format(config[:url], region: region)
-      else
-        config[:url]
-      end
     end
   end
 end
