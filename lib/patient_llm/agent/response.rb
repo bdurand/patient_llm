@@ -86,11 +86,20 @@ module PatientLLM
         llm_response.usage
       end
 
+      # Get just the message items in the session. This filters out any non-message items
+      # like tool calls, compactions, reasoning traces, etc. It includes just the system,
+      # user, and assistant messages.
+      #
+      # @return [Array<PromptBuilder::Items::Message>]
+      def messages
+        session.items.select { |item| item.is_a?(PromptBuilder::Items::Message) }
+      end
+
       # The model that produced the response.
       #
       # @return [String, nil]
       def model
-        llm_response.model
+        llm_response.model || session.model
       end
 
       # Whether the response contains tool calls.
