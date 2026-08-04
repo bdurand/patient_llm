@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.5.1
+
+### Added
+
+- Added `PatientLLM::Agent::Response#messages` to retrieve only the message items from the session, filtering out non-message items like tool calls, compactions, and reasoning traces.
+
+### Changed
+
+- Updated `PatientLLM::Agent::Response#model` to fall back to the session's model if the response does not specify one.
+
 ## 0.5.0
 
 ### Added
