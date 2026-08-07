@@ -16,6 +16,7 @@ module PatientLLM
   autoload :HaltError, File.expand_path("patient_llm/halt_error", __dir__)
   autoload :MaxToolIterationsError, File.expand_path("patient_llm/max_tool_iterations_error", __dir__)
   autoload :Presets, File.expand_path("patient_llm/presets", __dir__)
+  autoload :RequestPreview, File.expand_path("patient_llm/request_preview", __dir__)
   autoload :Schema, File.expand_path("patient_llm/schema", __dir__)
   autoload :StructuredOutputError, File.expand_path("patient_llm/structured_output_error", __dir__)
 
@@ -157,22 +158,63 @@ module PatientLLM
     #   {Callback::MAX_TOOL_ITERATIONS}.
     # @return [Object] Handler-specific identifier for the enqueued request
     def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
-      request_options = {}
-      request_options["url"] = url if url
-      request_options["serializer"] = serializer.to_s if serializer
-      request_options["path"] = path if path
-      request_options["headers"] = headers if headers && !headers.empty?
-      request_options["params"] = params if params && !params.empty?
-      request_options["preprocessors"] = preprocessors if preprocessors
-      request_options["timeout"] = timeout if timeout
-      request_options["max_tool_iterations"] = max_tool_iterations if max_tool_iterations
-
-      # The request options travel through the job queue in the callback args,
-      # which only permit JSON-native values; convert Symbols (e.g. serializer
-      # names, preprocessor names, header/param values) to Strings up front.
-      request_options = PromptBuilder.jsonify(request_options)
+      request_options = build_request_options(
+        url: url,
+        serializer: serializer,
+        path: path,
+        headers: headers,
+        params: params,
+        preprocessors: preprocessors,
+        timeout: timeout,
+        max_tool_iterations: max_tool_iterations
+      )
 
       dispatch(session, provider: provider, callback: callback, callback_args: callback_args, request_options: request_options)
+    end
+
+    # Build the request that {.ask} would send without sending it. The same
+    # resolution logic as {.ask} is applied: per-request overrides are merged
+    # over the provider configuration, the session is serialized with the
+    # resolved serializer, and provider params are merged into the payload.
+    #
+    # Nothing is enqueued or executed and no callback is required. Request
+    # preprocessors (e.g. AWS SigV4 signing) run at send time in the request
+    # processor, so their changes are not reflected in the preview. Header
+    # values that reference registered secrets are replaced with placeholders
+    # and never resolved.
+    #
+    # @param session [PromptBuilder::Session] The prompt session containing conversation state
+    # @param provider [Symbol, String] Registered provider name
+    # @param url [String, nil] Override the provider's base URL for this request
+    # @param serializer [Symbol, nil] Override the provider's serializer for this request
+    # @param path [String, nil] Override the endpoint path for this request
+    # @param headers [Hash, nil] Additional headers merged on top of provider headers
+    # @param params [Hash, nil] Additional params merged into the request payload
+    # @param preprocessors [String, Symbol, Array<String, Symbol>, nil] Accepted for
+    #   parity with {.ask}; preprocessors are not applied to the preview.
+    # @param timeout [Numeric, nil] Accepted for parity with {.ask}; does not affect the preview.
+    # @param max_tool_iterations [Integer, nil] Accepted for parity with {.ask}; does not
+    #   affect the preview.
+    # @return [RequestPreview] The url, headers, and JSON payload the request would send
+    def preview_request(session, provider:, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
+      request_options = build_request_options(
+        url: url,
+        serializer: serializer,
+        path: path,
+        headers: headers,
+        params: params,
+        preprocessors: preprocessors,
+        timeout: timeout,
+        max_tool_iterations: max_tool_iterations
+      )
+
+      resolved = resolve_request(session, self.provider(provider) || {}, request_options)
+
+      RequestPreview.new(
+        url: resolved.url,
+        headers: redact_secret_headers(resolved.headers),
+        payload: resolved.payload
+      )
     end
 
     # Internal dispatch used by {.ask} and by {Callback} to re-issue requests
@@ -187,6 +229,79 @@ module PatientLLM
         PatientLLM::Callback.validate_callback_class!(PatientHttp::ClassHelper.resolve_class_name(callback.to_s))
       end
 
+      resolved = resolve_request(session, provider_config, request_options)
+
+      dispatch_callback_args = {
+        session: session_payload(session),
+        provider: provider_name,
+        serializer: resolved.serializer.to_s,
+        callback: callback.to_s,
+        custom: PromptBuilder.jsonify(callback_args || {}),
+        request_options: request_options,
+        max_tool_iterations: resolved.max_tool_iterations,
+        tool_iteration: tool_iteration,
+        original_request_id: original_request_id
+      }
+
+      if inline?
+        request = PatientHttp::Request.new(
+          :post,
+          resolved.url,
+          json: resolved.payload,
+          headers: resolved.headers,
+          preprocessors: resolved.preprocessors,
+          timeout: resolved.timeout
+        )
+        PatientHttp.execute_inline(
+          request: request,
+          callback: PatientLLM::Callback,
+          callback_args: dispatch_callback_args,
+          raise_error_responses: true
+        )
+      else
+        PatientHttp.post(
+          resolved.url,
+          json: resolved.payload,
+          headers: resolved.headers,
+          preprocessors: resolved.preprocessors,
+          timeout: resolved.timeout,
+          raise_error_responses: true,
+          callback: PatientLLM::Callback,
+          callback_args: dispatch_callback_args
+        )
+      end
+    end
+
+    private
+
+    # Fully resolved request produced by merging per-request options over the
+    # provider configuration.
+    ResolvedRequest = Data.define(:url, :serializer, :headers, :payload, :preprocessors, :timeout, :max_tool_iterations)
+    private_constant :ResolvedRequest
+
+    # Normalize per-request overrides into a request options hash. The request
+    # options travel through the job queue in the callback args, which only
+    # permit JSON-native values; convert Symbols (e.g. serializer names,
+    # preprocessor names, header/param values) to Strings up front.
+    def build_request_options(url:, serializer:, path:, headers:, params:, preprocessors:, timeout:, max_tool_iterations:)
+      request_options = {}
+      request_options["url"] = url if url
+      request_options["serializer"] = serializer.to_s if serializer
+      request_options["path"] = path if path
+      request_options["headers"] = headers if headers && !headers.empty?
+      request_options["params"] = params if params && !params.empty?
+      request_options["preprocessors"] = preprocessors if preprocessors
+      request_options["timeout"] = timeout if timeout
+      request_options["max_tool_iterations"] = max_tool_iterations if max_tool_iterations
+
+      PromptBuilder.jsonify(request_options)
+    end
+
+    # Resolve the request URL, headers, payload, and execution settings from
+    # the request options merged over the provider configuration. This is the
+    # single source of truth for what a request looks like; both {.dispatch}
+    # and {.preview_request} build requests through it.
+    def resolve_request(session, provider_config, request_options)
       resolved_url = request_options["url"] || provider_config[:url]
       raise ArgumentError, "No API base URL configured. Set url: or register a provider with a url." unless resolved_url
 
@@ -209,57 +324,28 @@ module PatientLLM
       end
 
       resolved_params = (provider_config[:params] || {}).merge(request_options["params"] || {})
-      resolved_preprocessors = request_options["preprocessors"] || provider_config[:preprocessors]
-      resolved_timeout = request_options["timeout"] || provider_config[:timeout]
-      resolved_max_tool_iterations = (request_options["max_tool_iterations"] || provider_config[:max_tool_iterations] || Callback::MAX_TOOL_ITERATIONS).to_i
 
       payload = session.request_payload(resolved_serializer)
       payload = deep_merge(payload, deep_stringify_keys(resolved_params)) unless resolved_params.empty?
 
-      request_url = join_url(resolved_url, resolved_path)
-
-      dispatch_callback_args = {
-        session: session_payload(session),
-        provider: provider_name,
-        serializer: resolved_serializer.to_s,
-        callback: callback.to_s,
-        custom: PromptBuilder.jsonify(callback_args || {}),
-        request_options: request_options,
-        max_tool_iterations: resolved_max_tool_iterations,
-        tool_iteration: tool_iteration,
-        original_request_id: original_request_id
-      }
-
-      if inline?
-        request = PatientHttp::Request.new(
-          :post,
-          request_url,
-          json: payload,
-          headers: resolved_headers,
-          preprocessors: resolved_preprocessors,
-          timeout: resolved_timeout
-        )
-        PatientHttp.execute_inline(
-          request: request,
-          callback: PatientLLM::Callback,
-          callback_args: dispatch_callback_args,
-          raise_error_responses: true
-        )
-      else
-        PatientHttp.post(
-          request_url,
-          json: payload,
-          headers: resolved_headers,
-          preprocessors: resolved_preprocessors,
-          timeout: resolved_timeout,
-          raise_error_responses: true,
-          callback: PatientLLM::Callback,
-          callback_args: dispatch_callback_args
-        )
-      end
+      ResolvedRequest.new(
+        url: join_url(resolved_url, resolved_path),
+        serializer: resolved_serializer,
+        headers: resolved_headers,
+        payload: payload,
+        preprocessors: request_options["preprocessors"] || provider_config[:preprocessors],
+        timeout: request_options["timeout"] || provider_config[:timeout],
+        max_tool_iterations: (request_options["max_tool_iterations"] || provider_config[:max_tool_iterations] || Callback::MAX_TOOL_ITERATIONS).to_i
+      )
     end
 
-    private
+    # Replace secret reference header values with placeholders so a preview
+    # never resolves or exposes secret values.
+    def redact_secret_headers(headers)
+      headers.transform_values do |value|
+        value.is_a?(PatientHttp::SecretReference) ? "<secret:#{value.name}>" : value
+      end
+    end
 
     # Serialize the session for the callback args, offloading it to a payload
     # store when session offloading is configured and the serialized session

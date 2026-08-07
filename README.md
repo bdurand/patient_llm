@@ -364,6 +364,16 @@ response = ResearchAgent.ask!("What is the capital of France?")
 response.text   # => "Paris."
 ```
 
+### Previewing requests
+
+`preview_request` builds the request that `ask` would send — through the same resolution logic — without sending anything. It returns a `PatientLLM::RequestPreview` with the resolved `url`, `headers`, and JSON `payload`. Header values that reference registered secrets are replaced with placeholders, and request preprocessors (which run at send time) are not applied:
+
+```ruby
+preview = ResearchAgent.preview_request("What is the capital of France?")
+preview.url       # => "https://api.openai.com/v1/chat/completions"
+preview.payload   # => {"model" => "gpt-4o", "messages" => [...], ...}
+```
+
 ## The low-level API
 
 Agents compile down to this API; use it directly when you need full control.
@@ -450,6 +460,13 @@ PatientLLM.ask(session,
 ```
 
 `headers` and `params` are merged on top of the provider's configured values, while the other options replace the provider defaults. All overrides are preserved across automatic tool-loop iterations.
+
+`PatientLLM.preview_request` accepts the same arguments (minus `callback:`) and returns the request that `ask` would send — a `PatientLLM::RequestPreview` with the resolved `url`, `headers` (secret values redacted), and JSON `payload` — without enqueuing or executing anything:
+
+```ruby
+preview = PatientLLM.preview_request(session, provider: :openai)
+preview.payload   # => {"model" => "gpt-4o", "messages" => [...]}
+```
 
 ### Tool calling with the registry
 

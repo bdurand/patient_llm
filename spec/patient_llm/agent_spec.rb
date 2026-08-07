@@ -1192,6 +1192,59 @@ RSpec.describe PatientLLM::Agent do
     end
   end
 
+  describe ".preview_request" do
+    it "builds the request from the agent's declarations without sending anything" do
+      with_fake_handler do |captured|
+        preview = TestTripAgent.preview_request("What's the weather in NYC?")
+
+        expect(captured).to be_empty
+        expect(preview).to be_a(PatientLLM::RequestPreview)
+        expect(preview.url).to eq("https://api.openai.com/v1/chat/completions")
+        expect(preview.payload["model"]).to eq("gpt-4")
+        expect(preview.payload["temperature"]).to eq(0.3)
+        expect(preview.payload["max_completion_tokens"]).to eq(500)
+        expect(JSON.generate(preview.payload)).to include("What's the weather in NYC?")
+        expect(JSON.generate(preview.payload)).to include("You are a travel assistant.")
+        expect(preview.payload["tools"].first.dig("function", "name")).to eq("weather")
+        expect(preview.headers["Authorization"]).to eq("<secret:openai.api_key>")
+      end
+    end
+
+    it "honors per-request session options" do
+      preview = TestTripAgent.preview_request("hi", model: "gpt-4o", temperature: 0.9)
+
+      expect(preview.payload["model"]).to eq("gpt-4o")
+      expect(preview.payload["temperature"]).to eq(0.9)
+    end
+
+    it "appends the message to a passed session" do
+      session = PromptBuilder::Session.new(model: "gpt-4").tap { |s| s.user("First message") }
+      preview = TestTripAgent.preview_request("Second message", session: session)
+
+      expect(JSON.generate(preview.payload)).to include("First message")
+      expect(JSON.generate(preview.payload)).to include("Second message")
+    end
+
+    it "raises when session options are passed with a session" do
+      session = PromptBuilder::Session.new(model: "gpt-4")
+
+      expect {
+        TestTripAgent.preview_request("hi", session: session, model: "gpt-4o")
+      }.to raise_error(ArgumentError, /session options cannot be passed/)
+    end
+
+    it "raises without a provider" do
+      agent = Class.new(PatientLLM::Agent) do
+        def self.name
+          "ProviderlessPreviewAgent"
+        end
+        model "gpt-4"
+      end
+
+      expect { agent.preview_request("hi") }.to raise_error(ArgumentError, /must declare a provider/)
+    end
+  end
+
   describe "default failed hook" do
     it "re-raises the error so unhandled failures are not silently lost" do
       with_fake_handler do |captured|
