@@ -364,10 +364,13 @@ module PatientLLM
       # @param message [String, Array, Hash, nil] the user message to add
       # @param session [PromptBuilder::Session, nil] an existing session to use
       #   instead of building a new one
-      # @param options [Hash] the same per-request overrides accepted by {ask},
-      #   minus context: and callback: which do not affect the request
+      # @param context [Hash, nil] accepted for parity with {ask} and ignored;
+      #   the context does not affect the request
+      # @param callback [Class, String, nil] accepted for parity with {ask} and
+      #   ignored; the callback does not affect the request
+      # @param options [Hash] the same per-request overrides accepted by {ask}
       # @return [PatientLLM::RequestPreview] the url, headers, and JSON payload
-      def preview_request(message = nil, session: nil, **options)
+      def preview_request(message = nil, session: nil, context: nil, callback: nil, **options)
         session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
         raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
 

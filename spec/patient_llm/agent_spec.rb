@@ -1233,6 +1233,14 @@ RSpec.describe PatientLLM::Agent do
       }.to raise_error(ArgumentError, /session options cannot be passed/)
     end
 
+    it "accepts and ignores the context and callback options ask accepts" do
+      preview = TestTripAgent.preview_request("hi", context: {trip_id: 1}, callback: TestTripCallbacks)
+
+      expect(preview).to be_a(PatientLLM::RequestPreview)
+      expect(JSON.generate(preview.payload)).to include("hi")
+      expect(JSON.generate(preview.payload)).not_to include("trip_id")
+    end
+
     it "raises without a provider" do
       agent = Class.new(PatientLLM::Agent) do
         def self.name
