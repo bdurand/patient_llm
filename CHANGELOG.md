@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.6.0
+
+### Added
+
+- Added `PatientLLM.preview_request` and `PatientLLM::Agent.preview_request` to build the request that `ask` would send without sending it. Both return a `PatientLLM::RequestPreview` with the resolved `url`, `headers`, and JSON `payload`, produced by the same resolution logic dispatch uses. Nothing is enqueued or executed, header values that reference registered secrets are replaced with placeholders, and request preprocessors (which run at send time) are not applied. `Agent.preview_request` accepts the same options as `ask`, ignoring `context:` and `callback:` since they do not affect the request.
+
 ## 0.5.1
 
 ### Added

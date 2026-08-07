@@ -353,6 +353,37 @@ module PatientLLM
         capture[:response] || raise("No response was captured; the request did not complete")
       end
 
+      # Build the request that {ask} would send without sending it. The
+      # session is built from the agent's declarations exactly as {ask} builds
+      # it (including any per-request session options and the user message,
+      # which is appended to a passed session), and the request is resolved
+      # through the same logic as a dispatched request. Nothing is enqueued or
+      # executed. See {PatientLLM.preview_request} for details on what the
+      # preview does and does not reflect.
+      #
+      # @param message [String, Array, Hash, nil] the user message to add
+      # @param session [PromptBuilder::Session, nil] an existing session to use
+      #   instead of building a new one
+      # @param context [Hash, nil] accepted for parity with {ask} and ignored;
+      #   the context does not affect the request
+      # @param callback [Class, String, nil] accepted for parity with {ask} and
+      #   ignored; the callback does not affect the request
+      # @param options [Hash] the same per-request overrides accepted by {ask}
+      # @return [PatientLLM::RequestPreview] the url, headers, and JSON payload
+      def preview_request(message = nil, session: nil, context: nil, callback: nil, **options)
+        session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
+
+        session ||= build_session(**session_options)
+        session.user(message) if message
+
+        PatientLLM.preview_request(
+          session,
+          provider: provider_name!,
+          **options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        )
+      end
+
       # Build a new session from the agent's declarations. Options passed by
       # the caller take precedence over the agent's declarations for the same
       # fields (pass an explicit nil to unset a declared value for one request).
