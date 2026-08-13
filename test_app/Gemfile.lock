@@ -1,9 +1,14 @@
 PATH
+  remote: ../../prompt_builder
+  specs:
+    prompt_builder (0.4.0)
+
+PATH
   remote: ..
   specs:
-    patient_llm (0.5.0)
+    patient_llm (0.7.0)
       patient_http (~> 1.3)
-      prompt_builder (~> 0.3)
+      prompt_builder (~> 0.4)
 
 GEM
   remote: https://rubygems.org/
@@ -94,7 +99,6 @@ GEM
       prettyprint
     prettyprint (0.2.0)
     prism (1.9.0)
-    prompt_builder (0.3.0)
     protocol-hpack (1.5.1)
     protocol-http (0.66.0)
     protocol-http1 (0.39.0)
@@ -148,6 +152,7 @@ DEPENDENCIES
   json
   patient_http-sidekiq
   patient_llm!
+  prompt_builder!
   protocol-rack
   rack-session
 
@@ -184,11 +189,11 @@ CHECKSUMS
   openssl (4.0.2) sha256=1037ad2868ae58df9ad917891c0c0f9815a1172f6846d4bcdd508e4c2ee747c2
   patient_http (1.3.0) sha256=b43f816f638e956ad610fe525bcc3b12bfeb6ce07c340da61ad5c6c057a349cf
   patient_http-sidekiq (1.1.0) sha256=09f1db1365de511e42a1b7f67c964f679a029e1b84ceb14c80ec24609b54dbbd
-  patient_llm (0.5.0)
+  patient_llm (0.7.0)
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.0) sha256=2bc9e15581a94742064a3cc8b0fb9d45aae3d03a1baa6ef80922627a0766f193
   prism (1.9.0) sha256=7b530c6a9f92c24300014919c9dcbc055bf4cdf51ec30aed099b06cd6674ef85
-  prompt_builder (0.3.0) sha256=d355fac52273365e683c6e0e63fccf44a36a12b54e1b14f8c66cff77aa7d3896
+  prompt_builder (0.4.0)
   protocol-hpack (1.5.1) sha256=6feca238b8078da1cd295677d6f306c6001af92d75fe0643d33e6956cbc3ad91
   protocol-http (0.66.0) sha256=2244d1f1d53d1bfb4880e5885effa81ca86d2b7c5f4be46f4482b47c2001e48b
   protocol-http1 (0.39.0) sha256=e49b3f4cda6f5d94c76a323d2b7f6977cba3ebd082d2da437039594da77ad8eb

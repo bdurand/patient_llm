@@ -409,6 +409,35 @@ RSpec.describe PatientLLM::Callback do
       expect(received).to eq("parsed")
     end
 
+    it "passes the response headers to the parser so the converse response id comes from the request metadata header" do
+      args = callback_args.merge(serializer: "converse")
+      converse_body = {
+        "output" => {
+          "message" => {"role" => "assistant", "content" => [{"text" => "Hello!"}]}
+        },
+        "stopReason" => "end_turn"
+      }
+      response = PatientHttp::Response.new(
+        callback_args: args,
+        http_method: :post,
+        url: "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-pro-v1:0/converse",
+        status: 200,
+        headers: {"content-type" => "application/json", "x-amzn-RequestId" => "req-123"},
+        body: JSON.generate(converse_body),
+        duration: 1.0,
+        request_id: SecureRandom.uuid
+      )
+
+      received = nil
+      test_callback = instance_double(TestCallback)
+      allow(TestCallback).to receive(:new).and_return(test_callback)
+      allow(test_callback).to receive(:on_complete) { |llm_response:, **| received = llm_response.id }
+
+      callback.on_complete(response)
+
+      expect(received).to eq("req-123")
+    end
+
     it "respects a custom max_tool_iterations from callback_args" do
       args = callback_args_with_tools.merge(max_tool_iterations: 2, tool_iteration: 2)
       response = PatientHttp::Response.new(

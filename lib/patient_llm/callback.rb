@@ -87,7 +87,9 @@ module PatientLLM
       prepare_user_callback(user_callback, session: session, provider: provider_name, callback_args: callback_args, http_response: response, request_id: original_request_id)
 
       serializer = resolve_serializer(callback_args)
-      llm_response = PromptBuilder::Response.parse(response.json, serializer)
+      # The headers let formats that return response metadata in HTTP headers
+      # (e.g. the Converse response id) populate the parsed response.
+      llm_response = PromptBuilder::Response.parse(response.json, serializer, headers: response.headers)
 
       if should_auto_execute_tools?(llm_response, user_callback)
         continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, original_request_id)
