@@ -2,9 +2,6 @@ source "https://rubygems.org"
 
 gem "patient_llm", path: ".."
 
-# TEMPORARY local override until prompt_builder 0.4.0 is released. Do not commit.
-gem "prompt_builder", path: "../../prompt_builder"
-
 gem "patient_http-sidekiq"
 
 # SigV4 signer and credential chain for Bedrock request signing

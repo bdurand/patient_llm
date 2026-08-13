@@ -2,9 +2,6 @@ source "https://rubygems.org"
 
 gemspec
 
-# TEMPORARY local override until prompt_builder 0.4.0 is released. Do not commit.
-gem "prompt_builder", path: "../prompt_builder"
-
 # Exclude development-only gems from dependabot.
 unless ENV["DEPENDABOT"]
   gem "aws-sigv4"

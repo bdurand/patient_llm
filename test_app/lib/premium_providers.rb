@@ -6,7 +6,7 @@
 # test app UI needs.
 module PremiumProviders
   PROVIDERS = {
-    "openai" => {label: "OpenAI", env_key: "OPENAI_API_KEY", default_model: "gpt-5.4-nano"},
+    "openai" => {label: "OpenAI", env_key: "OPENAI_API_KEY", default_model: "gpt-5.6-luna"},
     "anthropic" => {label: "Anthropic", env_key: "ANTHROPIC_API_KEY", default_model: "claude-haiku-4-5"},
     "gemini" => {label: "Gemini", env_key: "GEMINI_API_KEY", default_model: "gemini-3.1-flash-lite"},
     "bedrock" => {label: "Bedrock", env_key: "BEDROCK_API_KEY", default_model: "moonshotai.kimi-k2.5"}
