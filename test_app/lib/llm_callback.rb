@@ -34,7 +34,7 @@ class LLMCallback
     ChatService.record_request_duration(request_id, http_response.duration)
     ChatService.set_result(request_id, result, total_duration)
 
-    Sidekiq.logger.info("LLM completion stored: #{llm_response.text&.slice(0, 100)}...")
+    Sidekiq.logger.info("LLM completion stored (response_id: #{llm_response.id.inspect}): #{llm_response.text&.slice(0, 100)}...")
   end
 
   def on_tool_use(llm_response:, http_response:, request_id:)
