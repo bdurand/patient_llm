@@ -72,7 +72,7 @@ class ChatAgent < PatientLLM::Agent
     ChatService.record_request_duration(response.context[:request_id], response.http_response.duration)
     store_result(result, response.context)
 
-    Sidekiq.logger.info("#{self.class.name} completion stored (response_id: #{response.llm_response.id.inspect}): #{response.text&.slice(0, 100)}...")
+    Sidekiq.logger.info("#{self.class.name} completion stored (response_id: #{response.response_id.inspect}): #{response.text&.slice(0, 100)}...")
   end
 
   # Record each automatic tool round so the UI can show the request count and

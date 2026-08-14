@@ -8,7 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Responses parsed with the `:converse` serializer now carry the response id from the `x-amzn-requestid` request metadata header, since the Converse API does not include a response id in the body. The HTTP response headers are passed to `PromptBuilder::Response.parse`, which requires prompt_builder 0.4.
+- Responses parsed with the `:converse` serializer now carry the response id from the `x-amzn-requestid` request metadata header, since the Converse API does not include a response id in the body.
+- prompt_builder minimum version is now 0.4.
+
+### Added
+
+- `Agent::Response` exposes the LLM response id as `response_id`.
 
 ## 0.6.0
 

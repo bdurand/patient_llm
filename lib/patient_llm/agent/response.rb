@@ -102,6 +102,13 @@ module PatientLLM
         llm_response.model || session.model
       end
 
+      # The provider's response id, when the response format supplies one.
+      #
+      # @return [String, nil]
+      def response_id
+        llm_response.id
+      end
+
       # Whether the response contains tool calls.
       #
       # @return [Boolean]
