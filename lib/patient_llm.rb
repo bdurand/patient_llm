@@ -156,8 +156,11 @@ module PatientLLM
     # @param max_tool_iterations [Integer, nil] Maximum automatic tool-execution rounds
     #   for this request. Overrides the provider's setting; defaults to
     #   {Callback::MAX_TOOL_ITERATIONS}.
+    # @param processor [String, Symbol, nil] Name of the PatientHttp processor that
+    #   should execute this request. Overrides the configuration's processor;
+    #   defaults to nil, which uses the default processor.
     # @return [Object] Handler-specific identifier for the enqueued request
-    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
+    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil, processor: nil)
       request_options = build_request_options(
         url: url,
         serializer: serializer,
@@ -166,7 +169,8 @@ module PatientLLM
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
-        max_tool_iterations: max_tool_iterations
+        max_tool_iterations: max_tool_iterations,
+        processor: processor
       )
 
       dispatch(session, provider: provider, callback: callback, callback_args: callback_args, request_options: request_options)
@@ -195,8 +199,10 @@ module PatientLLM
     # @param timeout [Numeric, nil] Accepted for parity with {.ask}; does not affect the preview.
     # @param max_tool_iterations [Integer, nil] Accepted for parity with {.ask}; does not
     #   affect the preview.
+    # @param processor [String, Symbol, nil] Accepted for parity with {.ask}; does not
+    #   affect the preview.
     # @return [RequestPreview] The url, headers, and JSON payload the request would send
-    def preview_request(session, provider:, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
+    def preview_request(session, provider:, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil, processor: nil)
       request_options = build_request_options(
         url: url,
         serializer: serializer,
@@ -205,7 +211,8 @@ module PatientLLM
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
-        max_tool_iterations: max_tool_iterations
+        max_tool_iterations: max_tool_iterations,
+        processor: processor
       )
 
       resolved = resolve_request(session, self.provider(provider) || {}, request_options)
@@ -250,7 +257,8 @@ module PatientLLM
           json: resolved.payload,
           headers: resolved.headers,
           preprocessors: resolved.preprocessors,
-          timeout: resolved.timeout
+          timeout: resolved.timeout,
+          processor: resolved.processor
         )
         PatientHttp.execute_inline(
           request: request,
@@ -265,6 +273,7 @@ module PatientLLM
           headers: resolved.headers,
           preprocessors: resolved.preprocessors,
           timeout: resolved.timeout,
+          processor: resolved.processor,
           raise_error_responses: true,
           callback: PatientLLM::Callback,
           callback_args: dispatch_callback_args
@@ -276,14 +285,14 @@ module PatientLLM
 
     # Fully resolved request produced by merging per-request options over the
     # provider configuration.
-    ResolvedRequest = Data.define(:url, :serializer, :headers, :payload, :preprocessors, :timeout, :max_tool_iterations)
+    ResolvedRequest = Data.define(:url, :serializer, :headers, :payload, :preprocessors, :timeout, :max_tool_iterations, :processor)
     private_constant :ResolvedRequest
 
     # Normalize per-request overrides into a request options hash. The request
     # options travel through the job queue in the callback args, which only
     # permit JSON-native values; convert Symbols (e.g. serializer names,
     # preprocessor names, header/param values) to Strings up front.
-    def build_request_options(url:, serializer:, path:, headers:, params:, preprocessors:, timeout:, max_tool_iterations:)
+    def build_request_options(url:, serializer:, path:, headers:, params:, preprocessors:, timeout:, max_tool_iterations:, processor:)
       request_options = {}
       request_options["url"] = url if url
       request_options["serializer"] = serializer.to_s if serializer
@@ -293,6 +302,7 @@ module PatientLLM
       request_options["preprocessors"] = preprocessors if preprocessors
       request_options["timeout"] = timeout if timeout
       request_options["max_tool_iterations"] = max_tool_iterations if max_tool_iterations
+      request_options["processor"] = processor.to_s if processor
 
       PromptBuilder.jsonify(request_options)
     end
@@ -335,8 +345,17 @@ module PatientLLM
         payload: payload,
         preprocessors: request_options["preprocessors"] || provider_config[:preprocessors],
         timeout: request_options["timeout"] || provider_config[:timeout],
-        max_tool_iterations: (request_options["max_tool_iterations"] || provider_config[:max_tool_iterations] || Callback::MAX_TOOL_ITERATIONS).to_i
+        max_tool_iterations: (request_options["max_tool_iterations"] || provider_config[:max_tool_iterations] || Callback::MAX_TOOL_ITERATIONS).to_i,
+        processor: request_options["processor"] || configured_processor
       )
+    end
+
+    # The processor name from the configuration, calling a callable value and
+    # normalizing the result to a String. Nil when no processor is configured.
+    def configured_processor
+      value = @configuration&.processor
+      value = value.call if value.respond_to?(:call)
+      value&.to_s
     end
 
     # Replace secret reference header values with placeholders so a preview

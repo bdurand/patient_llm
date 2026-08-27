@@ -69,6 +69,58 @@ RSpec.describe PatientLLM, "dispatch options" do
     end
   end
 
+  describe "processor" do
+    after do
+      PatientLLM.configuration.processor = nil
+    end
+
+    it "sends nil by default" do
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+        expect(captured.call[:request].processor).to be_nil
+      end
+    end
+
+    it "passes an ask processor to the request" do
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback", processor: :llm)
+        expect(captured.call[:request].processor).to eq("llm")
+      end
+    end
+
+    it "uses the configured processor by default" do
+      PatientLLM.configure { |c| c.processor = :llm }
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+        expect(captured.call[:request].processor).to eq("llm")
+      end
+    end
+
+    it "resolves a callable configured processor on every request" do
+      name = "llm"
+      PatientLLM.configure { |c| c.processor = -> { name } }
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+        expect(captured.call[:request].processor).to eq("llm")
+
+        name = "webhooks"
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+        expect(captured.call[:request].processor).to eq("webhooks")
+      end
+    end
+
+    it "prefers the ask processor over the configured one" do
+      PatientLLM.configure { |c| c.processor = :webhooks }
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :openai, callback: "TestCallback", processor: :llm)
+        expect(captured.call[:request].processor).to eq("llm")
+      end
+    end
+  end
+
   describe "max_tool_iterations" do
     it "defaults to the Callback constant" do
       with_fake_handler do |captured|

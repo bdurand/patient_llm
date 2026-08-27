@@ -415,6 +415,22 @@ RSpec.describe PatientLLM do
         end
       end
 
+      it "records processor override in request_options as a string" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback", processor: :llm)
+          options = captured.call[:callback_args][:request_options]
+          expect(options["processor"]).to eq("llm")
+        end
+      end
+
+      it "does not include processor in request_options when not overridden" do
+        with_fake_handler do |captured|
+          PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
+          options = captured.call[:callback_args][:request_options]
+          expect(options).not_to have_key("processor")
+        end
+      end
+
       it "does not include url in request_options when not overridden" do
         with_fake_handler do |captured|
           PatientLLM.ask(session, provider: :openai, callback: "TestCallback")
