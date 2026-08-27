@@ -623,9 +623,10 @@ RSpec.describe PatientLLM::Agent do
 
     it "forwards per-request overrides" do
       with_fake_handler do |captured|
-        TestTripAgent.ask("hi", timeout: 300, max_tool_iterations: 2)
+        TestTripAgent.ask("hi", timeout: 300, max_tool_iterations: 2, processor: :llm)
 
         expect(captured.first[:request].timeout).to eq(300)
+        expect(captured.first[:request].processor).to eq("llm")
         expect(captured.first[:callback_args][:max_tool_iterations]).to eq(2)
       end
     end

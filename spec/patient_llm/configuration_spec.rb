@@ -5,6 +5,17 @@ require "spec_helper"
 RSpec.describe PatientLLM::Configuration do
   let(:config) { described_class.new }
 
+  describe "#processor" do
+    it "defaults to nil" do
+      expect(config.processor).to be_nil
+    end
+
+    it "stores an assigned value" do
+      config.processor = :llm
+      expect(config.processor).to eq(:llm)
+    end
+  end
+
   describe "#provider" do
     it "registers a provider with url and headers" do
       config.provider :openai, url: "https://api.openai.com", headers: {"Authorization" => PatientHttp.secret("bearer_token")}

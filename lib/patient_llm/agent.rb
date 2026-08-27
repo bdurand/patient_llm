@@ -276,7 +276,7 @@ module PatientLLM
       #   agent. Defaults to sending the hooks to the agent itself.
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       #   (url:, serializer:, path:, headers:, params:, preprocessors:, timeout:,
-      #   max_tool_iterations:), plus session options (model:, temperature:,
+      #   max_tool_iterations:, processor:), plus session options (model:, temperature:,
       #   extra:, etc. — any PromptBuilder::Session::INITIALIZE_OPTIONS key)
       #   applied to the newly built session; session options raise
       #   ArgumentError when a session: is supplied.

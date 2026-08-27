@@ -28,9 +28,18 @@ module PatientLLM
 
     attr_reader :session_offload_options
 
+    # Name of the PatientHttp processor that executes LLM requests, used when a
+    # request does not pass its own processor: option. The value can be a
+    # Symbol, a String, or a callable resolved on every request. When nil, the
+    # default processor is used.
+    #
+    # @return [Symbol, String, #call, nil]
+    attr_accessor :processor
+
     def initialize
       @providers = {}
       @session_offload_options = nil
+      @processor = nil
     end
 
     # Register a provider.

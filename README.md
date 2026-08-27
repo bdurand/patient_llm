@@ -163,6 +163,16 @@ end
 
 Validation of a callable's result (serializer names, authentication headers) happens at lookup time instead of registration time.
 
+### Naming the request processor
+
+Job-system integrations for patient_http can run multiple named processors with different configurations — for example, one tuned for long-running LLM requests and another for quick webhook deliveries. Set `processor` to route every LLM request to a named processor; it can also be a callable, resolved on every request. When unset, requests use the default processor. A per-request `processor:` option on `ask` overrides the configured value.
+
+```ruby
+PatientLLM.configure do |config|
+  config.processor = :llm
+end
+```
+
 ### Request signing (preprocessors)
 
 Some providers require request signing rather than a static authentication header — for example, AWS Bedrock with SigV4, where a signature is computed over the final outgoing request. For these, register a [request preprocessor](https://github.com/bdurand/patient_http#request-preprocessors) on the PatientHttp configuration and reference it by name from the provider. Like secrets, only the preprocessor name is serialized into the job queue; the signing logic and credentials stay on the processor side.
@@ -455,7 +465,8 @@ PatientLLM.ask(session,
   params: {max_completion_tokens: 1000},   # Additional request parameters
   preprocessors: :aws_sigv4,               # Replace the provider's request preprocessors
   timeout: 600,                            # Request timeout in seconds
-  max_tool_iterations: 3                   # Tool loop cap for this request
+  max_tool_iterations: 3,                  # Tool loop cap for this request
+  processor: :llm                          # Named PatientHttp processor for this request
 )
 ```
 

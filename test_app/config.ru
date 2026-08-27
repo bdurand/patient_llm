@@ -41,5 +41,6 @@ map "/sidekiq" do
   use Rack::Session::Cookie, secret: session_secret, same_site: true, max_age: 86400
 
   require "sidekiq/web"
+  require "patient_http/sidekiq/web"
   run Sidekiq::Web
 end

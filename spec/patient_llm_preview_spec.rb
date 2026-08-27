@@ -85,6 +85,12 @@ RSpec.describe PatientLLM, ".preview_request" do
       expect(preview.payload["metadata"]).to eq({"user_id" => "u1"})
       expect(preview.payload["model"]).to eq("gpt-4")
     end
+
+    it "accepts a processor option for parity with ask" do
+      preview = PatientLLM.preview_request(session, provider: :openai, processor: :llm)
+
+      expect(preview.url).to eq("https://api.openai.com/v1/chat/completions")
+    end
   end
 
   describe "error parity with ask" do
