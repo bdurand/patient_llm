@@ -2,6 +2,9 @@ source "https://rubygems.org"
 
 gemspec
 
+# Use the unreleased prompt_builder 0.5.0 until it is published.
+gem "prompt_builder", github: "bdurand/prompt_builder", branch: "main"
+
 # Exclude development-only gems from dependabot.
 unless ENV["DEPENDABOT"]
   gem "aws-sigv4"

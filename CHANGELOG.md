@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.9.0
+
+### Added
+
+- `Agent.reasoning` accepts a block or callable argument like the other scalar declarations (e.g. `reasoning { LLMExperiment.reasoning_effort }`). It is evaluated each time a request is built, and its result is normalized with the same rules as a static value.
+- `reasoning false` turns reasoning off with `session.think(false)` (serialized as e.g. `thinking: {type: "disabled"}` on Anthropic Messages and Anthropic models on Converse), as opposed to `reasoning nil`, which sends no reasoning configuration and leaves the API's default in place. An effort level can accompany it (`reasoning false, effort: :low`). `reasoning true` turns reasoning on with the API's default depth.
+- `Agent.reasoning` also accepts a Hash of options (`{effort:}`, `{budget_tokens:}`, `{enabled: false}`), the form the reader returns.
+
+### Changed
+
+- The per-request `reasoning:` option to `ask`, `ask!`, and `preview_request` is normalized the same way as the `reasoning` declaration, so `reasoning: :low`, `reasoning: "low"`, `reasoning: {effort: :low}`, `reasoning: {budget_tokens: 2048}`, and `reasoning: false` produce the same session reasoning as the equivalent declaration. Previously the value was set on the session as-is, so shorthands such as `reasoning: :low` set the session reasoning to a String instead of a configuration Hash. `reasoning: nil` still sends no reasoning configuration for the request, and a Hash with other keys is still used as the raw reasoning configuration.
+- `Agent.reasoning` raises an `ArgumentError` for values that are not a reasoning configuration (such as a number) instead of converting them to an effort level string.
+- prompt_builder minimum version is now 0.5, which adds the explicit reasoning off configuration used by `reasoning false`.
+
 ## 0.8.0
 
 ### Added

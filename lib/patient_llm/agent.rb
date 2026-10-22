@@ -68,6 +68,11 @@ module PatientLLM
     NOT_SPECIFIED = Object.new
     private_constant :NOT_SPECIFIED
 
+    # Keys accepted in a Hash reasoning configuration; they map to the
+    # arguments of `session.think`.
+    REASONING_OPTIONS = %i[enabled effort budget_tokens].freeze
+    private_constant :REASONING_OPTIONS
+
     class << self
       # DSL: get or set the provider name for this agent. The value is
       # inherited from the parent agent class unless set; pass an explicit nil
@@ -131,30 +136,48 @@ module PatientLLM
         get_or_set_setting(:temperature, value, block)
       end
 
-      # DSL: get or set the reasoning configuration. Accepts a portable effort
-      # level (:minimal, :low, :medium, :high, :xhigh, :max) or explicit options
-      # (effort: or budget_tokens:) which are applied with `session.think`.
-      # The value is inherited from the parent agent class unless set; pass an
-      # explicit nil to remove an inherited value.
+      # DSL: get or set the reasoning configuration, applied to sessions with
+      # `session.think`. Accepts a portable effort level (:minimal, :low,
+      # :medium, :high, :xhigh, :max), explicit options (effort: or
+      # budget_tokens:), or false to turn reasoning off; an effort: may
+      # accompany false for APIs that limit token spend with it while
+      # thinking is off. True turns reasoning on and leaves the depth to the
+      # API. A Hash of the same options (:effort, :budget_tokens, :enabled) is
+      # also accepted, which is the form the reader returns.
       #
-      # @param value [Symbol, String, nil] a portable effort level.
+      # Nil and false are different: nil means no reasoning configuration,
+      # so the request carries no reasoning parameter and the API's default
+      # applies (some models reason by default), while false explicitly turns
+      # reasoning off. The value is inherited from the parent agent class
+      # unless set; pass an explicit nil to remove an inherited value.
+      #
+      # @example
+      #   reasoning :medium
+      #   reasoning budget_tokens: 8_000
+      #   reasoning false
+      #   reasoning { ReasoningSettings.effort }  # e.g. :low, :high, or false
+      #
+      # @param value [Symbol, String, Hash, Boolean, nil] a portable effort
+      #   level, a Hash of options, or true/false to turn reasoning on or off.
       #   Passing an explicit nil removes the previously set value.
       # @param effort [Symbol, String, nil] explicit effort level
       # @param budget_tokens [Integer, nil] explicit thinking token budget
-      # @return [Hash, nil] the reasoning options
-      def reasoning(value = NOT_SPECIFIED, effort: nil, budget_tokens: nil)
-        return inherited_setting(:reasoning) if value.equal?(NOT_SPECIFIED) && effort.nil? && budget_tokens.nil?
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically; the result accepts
+      #   the same forms as +value+ and is normalized at read time.
+      # @return [Hash, nil] the `session.think` options: {effort:},
+      #   {budget_tokens:}, {} for API defaults, or {enabled: false} (with an
+      #   optional effort:) for reasoning off; nil for no configuration
+      # @raise [ArgumentError] if more than one of a level, effort:, or
+      #   budget_tokens: is passed, or budget_tokens: is passed with false
+      def reasoning(value = NOT_SPECIFIED, effort: nil, budget_tokens: nil, &block)
+        if effort || budget_tokens
+          raise ArgumentError, "pass either an argument or a block, not both" if block
 
-        passed = [(value.equal?(NOT_SPECIFIED) ? nil : value), effort, budget_tokens].compact
-        raise ArgumentError, "pass a level, effort:, or budget_tokens: — not more than one" if passed.size > 1
-
-        @reasoning = if passed.empty?
-          nil
-        elsif effort || budget_tokens
-          {effort: effort&.to_s, budget_tokens: budget_tokens}.compact
-        else
-          {effort: value.to_s}
+          value = normalize_reasoning(value.equal?(NOT_SPECIFIED) ? nil : value, effort: effort, budget_tokens: budget_tokens)
         end
+
+        get_or_set_setting(:reasoning, value, block) { |resolved| normalize_reasoning(resolved) }
       end
 
       # DSL: get or set the maximum output tokens. The value is inherited from
@@ -279,7 +302,10 @@ module PatientLLM
       #   max_tool_iterations:, processor:), plus session options (model:, temperature:,
       #   extra:, etc. — any PromptBuilder::Session::INITIALIZE_OPTIONS key)
       #   applied to the newly built session; session options raise
-      #   ArgumentError when a session: is supplied.
+      #   ArgumentError when a session: is supplied. The reasoning: option
+      #   accepts the same values as the {reasoning} DSL (e.g.
+      #   +reasoning: :low+ or +reasoning: false+) and is normalized the same
+      #   way; see {build_session}.
       # @return [Object] handler-specific identifier for the enqueued request
       def ask(message = nil, context: {}, session: nil, callback: nil, **options)
         session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
@@ -388,10 +414,27 @@ module PatientLLM
       # the caller take precedence over the agent's declarations for the same
       # fields (pass an explicit nil to unset a declared value for one request).
       #
+      # The reasoning: option accepts the same values as the {reasoning} DSL
+      # and is normalized the same way, so +reasoning: :low+,
+      # +reasoning: {budget_tokens: 2048}+, and +reasoning: false+ produce the
+      # same session reasoning as the equivalent declarations. An explicit
+      # +reasoning: nil+ sends no reasoning configuration for the request. A
+      # Hash with keys other than :effort, :budget_tokens, and :enabled is
+      # used as the session's raw reasoning configuration for provider-specific
+      # settings.
+      #
+      # @param options [Hash] PromptBuilder::Session::INITIALIZE_OPTIONS values
       # @return [PromptBuilder::Session]
+      # @raise [ArgumentError] if the reasoning: option is invalid
       def build_session(**options)
+        overridden = options.keys
+        if options.key?(:reasoning) && !raw_reasoning_configuration?(options[:reasoning])
+          request_reasoning = normalize_reasoning(options.delete(:reasoning))
+        end
+
         session = PromptBuilder::Session.new(**options)
-        apply_configuration(session, except: options.keys)
+        apply_reasoning(session, request_reasoning) if request_reasoning
+        apply_configuration(session, except: overridden)
         session
       end
 
@@ -410,13 +453,14 @@ module PatientLLM
         temperature_value = temperature
         max_output_tokens_value = max_output_tokens
         extra_value = extra
+        reasoning_value = reasoning
         apply_system_message(session, system_message) if system_message && !except.include?(:system)
         session.model = model_value if model_value && !except.include?(:model)
         session.instructions = instructions_value if instructions_value && !except.include?(:instructions)
         session.temperature = temperature_value if temperature_value && !except.include?(:temperature)
         session.max_output_tokens = max_output_tokens_value if max_output_tokens_value && !except.include?(:max_output_tokens)
         session.extra = extra_value if extra_value && !except.include?(:extra)
-        session.think(**reasoning.transform_keys(&:to_sym)) if reasoning && !except.include?(:reasoning)
+        apply_reasoning(session, reasoning_value) if reasoning_value && !except.include?(:reasoning)
         if output_schema && !except.include?(:text)
           session.json_output(output_schema[:schema], name: output_schema[:name], strict: output_schema[:strict])
         end
@@ -483,6 +527,58 @@ module PatientLLM
         else
           session.system(message)
         end
+      end
+
+      # Normalize a reasoning value into the `session.think` options returned
+      # by {reasoning}: nil for no configuration, {enabled: false} (with an
+      # optional effort) for reasoning off, and {effort:}, {budget_tokens:},
+      # or {} (API defaults) for reasoning on. Already-normalized values pass
+      # through unchanged.
+      def normalize_reasoning(value, effort: nil, budget_tokens: nil)
+        case value
+        when nil
+          return nil if effort.nil? && budget_tokens.nil?
+
+          normalize_reasoning(true, effort: effort, budget_tokens: budget_tokens)
+        when true
+          raise ArgumentError, "pass a level, effort:, or budget_tokens: — not more than one" if effort && budget_tokens
+
+          {effort: effort&.to_s, budget_tokens: budget_tokens}.compact
+        when false
+          raise ArgumentError, "budget_tokens: cannot be combined with reasoning false" if budget_tokens
+
+          {enabled: false, effort: effort&.to_s}.compact
+        when Symbol, String
+          raise ArgumentError, "pass a level, effort:, or budget_tokens: — not more than one" if effort || budget_tokens
+
+          {effort: value.to_s}
+        when Hash
+          raise ArgumentError, "pass reasoning options as a Hash or as keywords, not both" if effort || budget_tokens
+
+          options = value.transform_keys(&:to_sym)
+          unknown = options.keys - REASONING_OPTIONS
+          raise ArgumentError, "unknown reasoning options: #{unknown.join(", ")}" unless unknown.empty?
+
+          enabled = options.fetch(:enabled, true)
+          raise ArgumentError, "reasoning enabled: must be true or false" unless enabled == true || enabled == false
+
+          normalize_reasoning(enabled, effort: options[:effort], budget_tokens: options[:budget_tokens])
+        else
+          raise ArgumentError, "reasoning must be an effort level, a Hash of options, true, false, or nil; got #{value.inspect}"
+        end
+      end
+
+      # Whether a per-request reasoning value is a provider-specific Hash to
+      # set on the session as-is rather than options to normalize.
+      def raw_reasoning_configuration?(value)
+        value.is_a?(Hash) && value.keys.any? { |key| !REASONING_OPTIONS.include?(key.to_sym) }
+      end
+
+      # Apply normalized reasoning options (see {normalize_reasoning}) to a
+      # session with `session.think`.
+      def apply_reasoning(session, options)
+        options = options.dup
+        session.think(options.delete(:enabled) != false, **options)
       end
 
       # Shared implementation of the scalar get-or-set DSL methods. With no

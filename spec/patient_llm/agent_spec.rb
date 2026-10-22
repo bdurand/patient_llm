@@ -576,6 +576,348 @@ RSpec.describe PatientLLM::Agent do
     end
   end
 
+  describe "reasoning" do
+    def reasoning_agent(name = "ReasoningConfigAgent", &block)
+      agent = Class.new(TestPlainAgent, &block)
+      stub_const(name, agent)
+      agent
+    end
+
+    describe "static declarations" do
+      it "normalizes a portable effort level" do
+        expect(reasoning_agent { reasoning :low }.reasoning).to eq({effort: "low"})
+        expect(reasoning_agent { reasoning "high" }.reasoning).to eq({effort: "high"})
+      end
+
+      it "normalizes explicit effort and budget_tokens options" do
+        expect(reasoning_agent { reasoning effort: :medium }.reasoning).to eq({effort: "medium"})
+        expect(reasoning_agent { reasoning budget_tokens: 2048 }.reasoning).to eq({budget_tokens: 2048})
+      end
+
+      it "raises when more than one of a level, effort:, or budget_tokens: is passed" do
+        expect { reasoning_agent { reasoning :low, effort: :high } }.to raise_error(ArgumentError, /not more than one/)
+        expect { reasoning_agent { reasoning effort: :low, budget_tokens: 2048 } }.to raise_error(ArgumentError, /not more than one/)
+      end
+
+      it "raises when passed both an argument and a block" do
+        expect { reasoning_agent { reasoning(:low) { :high } } }.to raise_error(ArgumentError, /not both/)
+        expect { reasoning_agent { reasoning(effort: :low) { :high } } }.to raise_error(ArgumentError, /not both/)
+      end
+
+      it "raises for a value that is not a reasoning configuration" do
+        expect { reasoning_agent { reasoning 5 } }.to raise_error(ArgumentError, /reasoning must be/)
+        expect { reasoning_agent { reasoning({summary: "auto"}) } }.to raise_error(ArgumentError, /unknown reasoning options: summary/)
+      end
+
+      it "turns reasoning off with false" do
+        agent = reasoning_agent { reasoning false }
+
+        expect(agent.reasoning).to eq({enabled: false})
+        expect(agent.build_session.reasoning).to eq({"type" => "disabled"})
+      end
+
+      it "accepts an effort level alongside false" do
+        agent = reasoning_agent { reasoning false, effort: :low }
+
+        expect(agent.reasoning).to eq({enabled: false, effort: "low"})
+        expect(agent.build_session.reasoning).to eq({"type" => "disabled", "effort" => "low"})
+      end
+
+      it "raises when budget_tokens is passed alongside false" do
+        expect { reasoning_agent { reasoning false, budget_tokens: 2048 } }.to raise_error(ArgumentError, /budget_tokens/)
+      end
+
+      it "turns reasoning on with API defaults with true" do
+        agent = reasoning_agent { reasoning true }
+
+        expect(agent.reasoning).to eq({})
+        expect(agent.build_session.reasoning).to eq({})
+      end
+    end
+
+    describe "dynamic declarations" do
+      it "resolves a block each time the value is read" do
+        effort = :low
+        agent = reasoning_agent { reasoning { effort } }
+
+        expect(agent.reasoning).to eq({effort: "low"})
+        effort = :high
+        expect(agent.reasoning).to eq({effort: "high"})
+      end
+
+      it "resolves a callable argument" do
+        agent = reasoning_agent { reasoning -> { :medium } }
+
+        expect(agent.reasoning).to eq({effort: "medium"})
+      end
+
+      it "normalizes the resolved value with the same rules as a static value" do
+        value = nil
+        agent = reasoning_agent { reasoning { value } }
+
+        {
+          :low => {effort: "low"},
+          "high" => {effort: "high"},
+          {effort: :low} => {effort: "low"},
+          {"effort" => "low"} => {effort: "low"},
+          {budget_tokens: 2048} => {budget_tokens: 2048},
+          {enabled: false, effort: :low} => {enabled: false, effort: "low"},
+          false => {enabled: false},
+          true => {},
+          nil => nil
+        }.each do |resolved, normalized|
+          value = resolved
+          expect(agent.reasoning).to eq(normalized), "expected #{resolved.inspect} to normalize to #{normalized.inspect}"
+        end
+      end
+
+      it "validates the resolved value when it is read rather than when it is declared" do
+        value = {effort: :low, budget_tokens: 2048}
+        agent = reasoning_agent { reasoning { value } }
+
+        expect { agent.reasoning }.to raise_error(ArgumentError, /not more than one/)
+        value = 5
+        expect { agent.reasoning }.to raise_error(ArgumentError, /reasoning must be/)
+      end
+
+      it "is inherited by subclasses and resolved when the subclass reads it" do
+        effort = :low
+        parent = reasoning_agent("DynamicReasoningParentAgent") { reasoning { effort } }
+        subclass = Class.new(parent)
+        stub_const("DynamicReasoningChildAgent", subclass)
+
+        expect(subclass.reasoning).to eq({effort: "low"})
+        effort = :max
+        expect(subclass.reasoning).to eq({effort: "max"})
+      end
+
+      it "can be overridden or removed with an explicit nil in a subclass" do
+        parent = reasoning_agent("DynamicReasoningParentAgent") { reasoning { :high } }
+        overriding = Class.new(parent) { reasoning false }
+        removing = Class.new(parent) { reasoning nil }
+        stub_const("OverridingReasoningAgent", overriding)
+        stub_const("RemovingReasoningAgent", removing)
+
+        expect(overriding.reasoning).to eq({enabled: false})
+        expect(removing.reasoning).to be_nil
+        expect(removing.build_session.reasoning).to be_nil
+        expect(parent.reasoning).to eq({effort: "high"})
+      end
+
+      it "applies the resolved value to built sessions, calling the block once per session" do
+        calls = 0
+        value = :low
+        agent = reasoning_agent do
+          reasoning do
+            calls += 1
+            value
+          end
+        end
+
+        expect(agent.build_session.reasoning).to eq({"effort" => "low"})
+        expect(calls).to eq(1)
+
+        value = false
+        expect(agent.build_session.reasoning).to eq({"type" => "disabled"})
+        value = {budget_tokens: 2048}
+        expect(agent.build_session.reasoning).to eq({"budget_tokens" => 2048})
+        value = nil
+        expect(agent.build_session.reasoning).to be_nil
+      end
+    end
+
+    describe "nil versus false" do
+      it "applies no reasoning configuration for nil and turns reasoning off for false" do
+        unset = reasoning_agent("UnsetReasoningAgent") { reasoning nil }
+        off = reasoning_agent("OffReasoningAgent") { reasoning false }
+
+        expect(unset.reasoning).to be_nil
+        expect(unset.build_session.reasoning).to be_nil
+        expect(off.reasoning).to eq({enabled: false})
+        expect(off.build_session.reasoning).to eq({"type" => "disabled"})
+      end
+
+      it "serializes nil as no reasoning parameter and false as reasoning off" do
+        unset = reasoning_agent("UnsetReasoningAgent") { reasoning nil }
+        off = reasoning_agent("OffReasoningAgent") { reasoning false }
+
+        expect(unset.preview_request("hi").payload).not_to have_key("reasoning_effort")
+        expect(off.preview_request("hi").payload["reasoning_effort"]).to eq("none")
+      end
+    end
+
+    describe "per-request option" do
+      let(:agent) { reasoning_agent { reasoning :high } }
+
+      it "normalizes shorthand values the same way as the DSL" do
+        {
+          :low => {"effort" => "low"},
+          "low" => {"effort" => "low"},
+          {effort: :low} => {"effort" => "low"},
+          {"effort" => "low"} => {"effort" => "low"},
+          {budget_tokens: 2048} => {"budget_tokens" => 2048},
+          false => {"type" => "disabled"},
+          {enabled: false, effort: :low} => {"type" => "disabled", "effort" => "low"}
+        }.each do |value, expected|
+          expect(agent.build_session(reasoning: value).reasoning).to eq(expected), "expected reasoning: #{value.inspect} to produce #{expected.inspect}"
+        end
+      end
+
+      it "produces the same session reasoning as the equivalent DSL declaration" do
+        [:low, {budget_tokens: 2048}, false].each do |value|
+          declared = reasoning_agent("DeclaredReasoningAgent") { reasoning value }
+
+          expect(agent.build_session(reasoning: value).reasoning).to eq(declared.build_session.reasoning)
+        end
+      end
+
+      it "applies no reasoning configuration for an explicit nil, suppressing the agent's declaration" do
+        session = agent.build_session(reasoning: nil)
+
+        expect(session.reasoning).to be_nil
+      end
+
+      it "overrides a dynamic declaration" do
+        dynamic = reasoning_agent { reasoning { :high } }
+
+        expect(dynamic.build_session(reasoning: :low).reasoning).to eq({"effort" => "low"})
+        expect(dynamic.build_session(reasoning: false).reasoning).to eq({"type" => "disabled"})
+      end
+
+      it "passes a provider-specific reasoning Hash through as the session's reasoning configuration" do
+        session = agent.build_session(reasoning: {"effort" => "low", "summary" => "auto"})
+
+        expect(session.reasoning).to eq({"effort" => "low", "summary" => "auto"})
+      end
+
+      it "raises for a value that is not a reasoning configuration" do
+        expect { agent.build_session(reasoning: 5) }.to raise_error(ArgumentError, /reasoning must be/)
+        expect { agent.build_session(reasoning: {effort: :low, budget_tokens: 2048}) }.to raise_error(ArgumentError, /not more than one/)
+      end
+
+      it "is normalized by ask" do
+        with_fake_handler do |captured|
+          agent.ask("hi", reasoning: :low)
+          agent.ask("hi", reasoning: false)
+          agent.ask("hi", reasoning: nil)
+
+          sessions = captured.map { |entry| entry[:callback_args][:session] }
+          expect(sessions[0]["reasoning"]).to eq({"effort" => "low"})
+          expect(sessions[1]["reasoning"]).to eq({"type" => "disabled"})
+          expect(sessions[2]).not_to have_key("reasoning")
+        end
+      end
+
+      it "is normalized by ask!" do
+        stub_request(:post, "https://api.openai.com/v1/chat/completions")
+          .to_return(status: 200, headers: {"content-type" => "application/json"}, body: JSON.generate(text_body("Hello")))
+
+        agent.ask!("hi", reasoning: :low)
+        agent.ask!("hi", reasoning: false)
+
+        expect(
+          a_request(:post, "https://api.openai.com/v1/chat/completions").with { |request| JSON.parse(request.body)["reasoning_effort"] == "low" }
+        ).to have_been_made.once
+        expect(
+          a_request(:post, "https://api.openai.com/v1/chat/completions").with { |request| JSON.parse(request.body)["reasoning_effort"] == "none" }
+        ).to have_been_made.once
+      end
+
+      it "is normalized by preview_request" do
+        expect(agent.preview_request("hi", reasoning: "low").payload["reasoning_effort"]).to eq("low")
+        expect(agent.preview_request("hi", reasoning: false).payload["reasoning_effort"]).to eq("none")
+        expect(agent.preview_request("hi", reasoning: nil).payload).not_to have_key("reasoning_effort")
+      end
+
+      it "is rejected by continue, which re-applies the agent's declaration instead" do
+        state = PromptBuilder::Session.new(model: "gpt-4").tap { |s| s.user("First message") }.to_h
+
+        expect { agent.continue(state, "Hello", reasoning: :low) }.to raise_error(ArgumentError, /session options cannot be passed/)
+      end
+    end
+
+    describe ".continue" do
+      it "re-applies a dynamic declaration to the restored session" do
+        value = :low
+        agent = reasoning_agent { reasoning { value } }
+        state = agent.build_session.tap { |s| s.user("First message") }.to_h
+        value = false
+
+        with_fake_handler do |captured|
+          agent.continue(state, "Hello")
+
+          expect(captured.first[:callback_args][:session]["reasoning"]).to eq({"type" => "disabled"})
+        end
+      end
+    end
+
+    describe "Converse request body" do
+      before do
+        PatientLLM.configure do |config|
+          config.provider :converse_test, url: "https://bedrock-runtime.example.com", serializer: :converse
+        end
+      end
+
+      let(:effort) { :low }
+      let(:agent) do
+        current_effort = -> { effort }
+        reasoning_agent("ConverseReasoningAgent") do
+          provider :converse_test
+          model "us.anthropic.claude-haiku-5-5"
+          reasoning { current_effort.call }
+        end
+      end
+
+      def model_request_fields(preview)
+        expect(preview.url).to eq("https://bedrock-runtime.example.com/model/us.anthropic.claude-haiku-5-5/converse")
+        preview.payload["additionalModelRequestFields"]
+      end
+
+      it "sends adaptive thinking with the effort level for an effort declaration" do
+        fields = model_request_fields(agent.preview_request("hi"))
+
+        expect(fields["thinking"]).to eq({"type" => "adaptive"})
+        expect(fields["output_config"]).to eq({"effort" => "low"})
+      end
+
+      context "when the declaration resolves to false" do
+        let(:effort) { false }
+
+        it "turns thinking off" do
+          fields = model_request_fields(agent.preview_request("hi"))
+
+          expect(fields["thinking"]).to eq({"type" => "disabled"})
+          expect(fields).not_to have_key("output_config")
+        end
+      end
+
+      it "sends a per-request effort level" do
+        fields = model_request_fields(agent.preview_request("hi", reasoning: :medium))
+
+        expect(fields["thinking"]).to eq({"type" => "adaptive"})
+        expect(fields["output_config"]).to eq({"effort" => "medium"})
+      end
+
+      it "turns thinking off for a per-request false" do
+        fields = model_request_fields(agent.preview_request("hi", reasoning: false))
+
+        expect(fields["thinking"]).to eq({"type" => "disabled"})
+        expect(fields).not_to have_key("output_config")
+      end
+
+      it "sends an effort level alongside disabled thinking" do
+        fields = model_request_fields(agent.preview_request("hi", reasoning: {enabled: false, effort: :low}))
+
+        expect(fields["thinking"]).to eq({"type" => "disabled"})
+        expect(fields["output_config"]).to eq({"effort" => "low"})
+      end
+
+      it "sends no thinking configuration for a per-request nil" do
+        expect(agent.preview_request("hi", reasoning: nil).payload).not_to have_key("additionalModelRequestFields")
+      end
+    end
+  end
+
   describe ".ask" do
     it "sends the message through PatientLLM with the agent as the callback" do
       with_fake_handler do |captured|
