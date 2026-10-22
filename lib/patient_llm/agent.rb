@@ -165,8 +165,8 @@ module PatientLLM
       # @yield an optional block (or callable argument) called each time the
       #   value is read so it can be generated dynamically; the result accepts
       #   the same forms as +value+ and is normalized at read time.
-      # @return [Hash, nil] the `session.think` options: {effort:},
-      #   {budget_tokens:}, {} for API defaults, or {enabled: false} (with an
+      # @return [Hash, nil] the `session.think` options: +{effort:}+,
+      #   +{budget_tokens:}+, +{}+ for API defaults, or +{enabled: false}+ (with an
       #   optional effort:) for reasoning off; nil for no configuration
       # @raise [ArgumentError] if more than one of a level, effort:, or
       #   budget_tokens: is passed, or budget_tokens: is passed with false
@@ -530,9 +530,9 @@ module PatientLLM
       end
 
       # Normalize a reasoning value into the `session.think` options returned
-      # by {reasoning}: nil for no configuration, {enabled: false} (with an
-      # optional effort) for reasoning off, and {effort:}, {budget_tokens:},
-      # or {} (API defaults) for reasoning on. Already-normalized values pass
+      # by {reasoning}: nil for no configuration, +{enabled: false}+ (with an
+      # optional effort) for reasoning off, and +{effort:}+, +{budget_tokens:}+,
+      # or +{}+ (API defaults) for reasoning on. Already-normalized values pass
       # through unchanged.
       def normalize_reasoning(value, effort: nil, budget_tokens: nil)
         case value
