@@ -22,6 +22,9 @@ const frequencyPenaltyEl = document.getElementById('frequency-penalty');
 const frequencyPenaltyValueEl = document.getElementById('frequency-penalty-value');
 const thinkingEnabledEl = document.getElementById('thinking-enabled');
 const thinkingOptionsEl = document.getElementById('thinking-options');
+const thinkingModeEl = document.getElementById('thinking-mode');
+const thinkingEffortGroupEl = document.getElementById('thinking-effort-group');
+const thinkingBudgetGroupEl = document.getElementById('thinking-budget-group');
 const toolsEnabledEl = document.getElementById('tools-enabled');
 const streamEnabledEl = document.getElementById('stream-enabled');
 const streamOptionsEl = document.getElementById('stream-options');
@@ -73,6 +76,13 @@ streamEnabledEl.addEventListener('change', () => {
 // Toggle thinking options
 thinkingEnabledEl.addEventListener('change', () => {
   thinkingOptionsEl.style.display = thinkingEnabledEl.checked ? 'block' : 'none';
+});
+
+// Show only the control that applies to the selected thinking mode
+thinkingModeEl.addEventListener('change', () => {
+  const budgetMode = thinkingModeEl.value === 'budget';
+  thinkingEffortGroupEl.style.display = budgetMode ? 'none' : 'block';
+  thinkingBudgetGroupEl.style.display = budgetMode ? 'block' : 'none';
 });
 
 // Toggle tools options
@@ -378,6 +388,7 @@ function getSettings() {
     model: document.getElementById('model').value,
     system_prompt: document.getElementById('system-prompt').value,
     thinking_enabled: thinkingEnabledEl.checked,
+    thinking_mode: thinkingModeEl.value,
     thinking_effort: document.getElementById('thinking-effort').value,
     thinking_budget: parseInt(document.getElementById('thinking-budget').value),
     schema: document.getElementById('schema').value
