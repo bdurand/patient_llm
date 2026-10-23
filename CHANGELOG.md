@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.10.0
+
+### Added
+
+- Streaming responses. Set `stream: true` on a provider, pass `stream:` to `ask` (on `PatientLLM` or an agent, including `continue` and `ask!`), or declare `stream true` on an agent. The provider streams the response so data keeps flowing during long generations, and the streamed body is reassembled into a single `PromptBuilder::Response` before the callback runs, so callbacks, hooks, and tool loops are unchanged. Every API format is supported; Gemini and Bedrock Converse use their streaming endpoints by default when streaming.
+- `read_timeout` provider and request option: the maximum number of seconds to wait for data on a streamed request. It is not applied to requests that are not streamed.
+- `max_response_size` provider and request option to raise the PatientHttp response size limit for LLM requests, since streamed bodies are larger than JSON bodies.
+- A stream that reports an error event, ends before its final event, or is malformed is sent to `on_error` (and an agent's `failed` hook) as a `PatientHttp::RequestError` with the error type `:stream_error`.
+
+### Changed
+
+- `stream:` passed to an agent's `ask` or `preview_request` is a request option instead of a session option, so it is accepted by `continue` and is not saved in the conversation state.
+- patient_http minimum version is now 1.8.0, which adds the `read_timeout` and per-request `max_response_size` options.
+- Minimum Ruby version is now 3.3.
+
 ## 0.9.0
 
 ### Added

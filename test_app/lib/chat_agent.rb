@@ -56,7 +56,8 @@ class ChatAgent < PatientLLM::Agent
       model_id: response.model,
       input_tokens: response.usage&.input_tokens,
       output_tokens: response.usage&.output_tokens,
-      duration: response.http_response.duration&.round(1)
+      duration: response.http_response.duration&.round(1),
+      streamed: response.http_response.content_type.to_s.include?("stream")
     }
 
     text_format = session.text&.dig("format", "type")

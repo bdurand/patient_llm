@@ -127,15 +127,25 @@
 
           <div class="thinking-options" id="thinking-options" style="display: none;">
             <div class="setting-group">
-              <label for="thinking-effort">Thinking Effort</label>
-              <select id="thinking-effort">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
+              <label for="thinking-mode">Thinking Mode</label>
+              <select id="thinking-mode">
+                <option value="effort" selected>Effort</option>
+                <option value="budget">Token Budget</option>
               </select>
             </div>
 
-            <div class="setting-group">
+            <div class="setting-group" id="thinking-effort-group">
+              <label for="thinking-effort">Thinking Effort</label>
+              <select id="thinking-effort">
+                <option value="off">Off</option>
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+                <option value="xhigh">Extra High</option>
+              </select>
+            </div>
+
+            <div class="setting-group" id="thinking-budget-group" style="display: none;">
               <label for="thinking-budget">Thinking Budget (tokens)</label>
               <input type="number" id="thinking-budget" value="10000" min="1000" max="100000" autocomplete="off" autocapitalize="off">
             </div>
@@ -199,6 +209,20 @@
         <!-- Response Control -->
         <details class="settings-section">
           <summary>Response</summary>
+
+          <div class="setting-group">
+            <label>
+              <input type="checkbox" id="stream-enabled">
+              Stream Response
+            </label>
+          </div>
+
+          <div id="stream-options" style="display: none;">
+            <div class="setting-group">
+              <label for="read-timeout">Read Timeout (seconds, 0 = none)</label>
+              <input type="number" id="read-timeout" value="60" min="0" max="3600" autocomplete="off" autocapitalize="off">
+            </div>
+          </div>
 
           <div class="setting-group">
             <label for="truncation">Truncation</label>

@@ -69,11 +69,18 @@ module PatientLLM
     # @param preprocessors [String, Symbol, Array<String, Symbol>, #call, nil] Names of request
     #   preprocessors to apply to every request (e.g. for request signing). Names must be
     #   registered on the PatientHttp configuration with `register_preprocessor`.
-    # @param timeout [Numeric, #call, nil] Request timeout in seconds for this provider's requests
+    # @param timeout [Numeric, #call, nil] Request timeout in seconds for this provider's requests.
+    #   For a streamed request this limits the full stream.
+    # @param stream [Boolean, #call, nil] Whether to stream this provider's responses. The
+    #   streamed body is reassembled into a single response before the callback runs.
+    # @param read_timeout [Numeric, #call, nil] Maximum seconds to wait for data from the
+    #   server on a streamed request. Not applied to requests that are not streamed.
+    # @param max_response_size [Integer, #call, nil] Maximum response body size in bytes
+    #   for this provider's requests. A streamed body is larger than the equivalent JSON body.
     # @param max_tool_iterations [Integer, #call, nil] Maximum automatic tool-execution rounds
     #   for this provider's requests (default: PatientLLM::Callback::MAX_TOOL_ITERATIONS)
     # @return [void]
-    def provider(name, preset: nil, url: nil, api_key: nil, region: nil, headers: nil, serializer: nil, path: nil, params: {}, preprocessors: nil, timeout: nil, max_tool_iterations: nil)
+    def provider(name, preset: nil, url: nil, api_key: nil, region: nil, headers: nil, serializer: nil, path: nil, params: {}, preprocessors: nil, timeout: nil, stream: nil, read_timeout: nil, max_response_size: nil, max_tool_iterations: nil)
       preset_config = preset ? Presets.fetch(preset) : nil
       options = {
         preset_config: preset_config,
@@ -85,6 +92,9 @@ module PatientLLM
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
+        stream: stream,
+        read_timeout: read_timeout,
+        max_response_size: max_response_size,
         max_tool_iterations: max_tool_iterations
       }
 
@@ -167,6 +177,9 @@ module PatientLLM
         params: options[:params] || {},
         preprocessors: options[:preprocessors],
         timeout: options[:timeout],
+        stream: options[:stream],
+        read_timeout: options[:read_timeout],
+        max_response_size: options[:max_response_size],
         max_tool_iterations: options[:max_tool_iterations]
       }
     end

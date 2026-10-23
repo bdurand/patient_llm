@@ -17,6 +17,12 @@ module PatientLLM
   # The user callback receives a `PromptBuilder::Response` object. Access
   # the response text via `response.text`, token usage via `response.usage`,
   # and model id via `response.model`.
+  #
+  # A streamed response body is reassembled into the same response the
+  # non-streaming endpoint would have returned. A stream that reports an error
+  # event, ends before its terminal event, or is malformed is routed to the
+  # user callback's on_error method as a `PatientHttp::RequestError` with the
+  # error type :stream_error.
   class Callback
     # Default maximum number of tool-execution rounds before the loop stops and
     # routes a `PatientHttp::RequestError` (error type :max_tool_iterations) to
@@ -87,9 +93,21 @@ module PatientLLM
       prepare_user_callback(user_callback, session: session, provider: provider_name, callback_args: callback_args, http_response: response, request_id: original_request_id)
 
       serializer = resolve_serializer(callback_args)
-      # The headers let formats that return response metadata in HTTP headers
-      # (e.g. the Converse response id) populate the parsed response.
-      llm_response = PromptBuilder::Response.parse(response.json, serializer, headers: response.headers)
+      if streamed_response?(response, callback_args)
+        begin
+          # A response with no body (such as a 204) is an empty stream, which
+          # the parser reports as incomplete.
+          llm_response = PromptBuilder::Response.parse_stream(response.body || "", serializer, headers: response.headers)
+        rescue PromptBuilder::UnexpectedPayloadError, PromptBuilder::ParseError => e
+          error = request_error(e, :stream_error, response, original_request_id)
+          invoke_user_callback(user_callback, :on_error, session: session, provider: provider_name, callback_args: user_callback_args(callback_args), error: error, http_response: response, request_id: original_request_id)
+          return
+        end
+      else
+        # The headers let formats that return response metadata in HTTP headers
+        # (e.g. the Converse response id) populate the parsed response.
+        llm_response = PromptBuilder::Response.parse(response.json, serializer, headers: response.headers)
+      end
 
       if should_auto_execute_tools?(llm_response, user_callback)
         continue_tool_loop(session, provider_name, llm_response, callback_args, response, user_callback, original_request_id)
@@ -192,6 +210,18 @@ module PatientLLM
       provider_config&.dig(:serializer) || :chat_completion
     end
 
+    # Whether the response body is a stream. The stream flag recorded at
+    # dispatch covers requests streamed by request option, stream param,
+    # provider setting, or session field; the content type also catches an
+    # endpoint that streams without being asked, such as a custom path to a
+    # streaming endpoint.
+    def streamed_response?(response, callback_args)
+      return true if callback_args.fetch(:stream, nil) == true
+
+      content_type = response.headers["content-type"].to_s.downcase
+      STREAM_CONTENT_TYPES.any? { |type| content_type.start_with?(type) }
+    end
+
     def max_tool_iterations(callback_args)
       callback_args.fetch(:max_tool_iterations, MAX_TOOL_ITERATIONS).to_i
     end
@@ -274,11 +304,17 @@ module PatientLLM
     def max_tool_iterations_error(callback_args, http_response, request_id)
       limit = max_tool_iterations(callback_args)
       exception = MaxToolIterationsError.new("Tool-call loop exceeded #{limit} iterations")
+      request_error(exception, :max_tool_iterations, http_response, request_id)
+    end
+
+    # Wrap an exception raised while handling a response in a RequestError so
+    # it reaches the user callback's on_error method like a transport error.
+    def request_error(exception, error_type, http_response, request_id)
       PatientHttp::RequestError.new(
         class_name: exception.class.name,
         message: exception.message,
-        backtrace: [],
-        error_type: :max_tool_iterations,
+        backtrace: exception.backtrace || [],
+        error_type: error_type,
         duration: http_response&.duration,
         request_id: request_id,
         url: http_response&.url,

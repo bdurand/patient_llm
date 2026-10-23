@@ -4,6 +4,19 @@ require "json"
 require "net/http"
 
 class ChatAction
+  STREAM_TIMEOUT = 30 * 60
+  STREAM_MAX_RESPONSE_SIZE = 16 * 1024 * 1024
+
+  # Converse has no reasoning parameter of its own; every model family reads
+  # its own fields from additionalModelRequestFields. The serializer maps the
+  # Anthropic and OpenAI families from session.reasoning and raises for the
+  # rest, so those families need their native fields passed through instead.
+  # Keyed by the provider segment of the Bedrock model id, which may carry a
+  # cross region prefix (us., in., global.).
+  CONVERSE_REASONING_FIELDS = {
+    "moonshotai" => ->(effort) { {"reasoning_effort" => (effort == "off") ? "none" : effort} }
+  }.freeze
+
   def call(env)
     request = Rack::Request.new(env)
     params = JSON.parse(request.body.read)
@@ -68,19 +81,34 @@ class ChatAction
 
     thinking_enabled = params["thinking_enabled"]
 
-    if params["temperature"] && !(thinking_enabled && effective_serializer == :messages)
+    # An explicit token budget is only supported by the Messages format, and
+    # only by models that accept a fixed thinking budget. Effort is the
+    # portable control (Converse warns and skips it).
+    thinking_budget = thinking_enabled && params["thinking_mode"] == "budget" && effective_serializer == :messages
+    thinking_effort = params["thinking_effort"] || "medium" unless thinking_budget
+
+    # An "off" effort level turns reasoning off explicitly, which differs from
+    # leaving reasoning unset: the request carries the API's off switch rather
+    # than no reasoning parameter at all.
+    thinking_active = thinking_enabled && thinking_effort != "off"
+
+    if params["temperature"] && !(thinking_active && effective_serializer == :messages)
       session.temperature = params["temperature"].to_f
     end
 
     if thinking_enabled
-      if effective_serializer == :messages
-        # Messages uses an explicit thinking budget
+      native_reasoning = converse_reasoning_fields(session.model, thinking_effort) if effective_serializer == :converse
+
+      if thinking_budget
         budget = params["thinking_budget"].to_i
         budget = 10000 if budget < 1
         session.think(budget_tokens: budget)
+      elsif native_reasoning
+        session.extra = (session.extra || {}).merge("additional_model_request_fields" => native_reasoning)
+      elsif thinking_effort == "off"
+        session.think(false)
       else
-        # Everything else takes a portable effort level (Converse warns and skips)
-        session.think(effort: params["thinking_effort"] || "medium")
+        session.think(effort: thinking_effort)
       end
     end
 
@@ -101,13 +129,13 @@ class ChatAction
     end
 
     # Anthropic requires max_tokens > budget_tokens when thinking is enabled
-    if thinking_enabled && effective_serializer == :messages
+    if thinking_budget
       budget = session.reasoning&.fetch("budget_tokens", 0) || 0
       max_tokens = session.max_output_tokens || 0
       session.max_output_tokens = budget + 4096 if max_tokens < budget + 1
     end
 
-    if params["top_p"] && !(thinking_enabled && effective_serializer == :messages)
+    if params["top_p"] && !(thinking_active && effective_serializer == :messages)
       session.top_p = params["top_p"].to_f
     end
 
@@ -188,6 +216,7 @@ class ChatAction
     end
 
     request_id = SecureRandom.uuid
+    stream_options = stream_request_options(params)
 
     if agent_class
       # The agent adds the message, dispatches with its declared provider, and
@@ -196,7 +225,8 @@ class ChatAction
       agent_class.ask(
         message_content,
         session: session,
-        context: {request_id: request_id, start_time: Time.now.to_f}
+        context: {request_id: request_id, start_time: Time.now.to_f},
+        **stream_options
       )
     else
       session.user(message_content)
@@ -209,7 +239,8 @@ class ChatAction
         url: url_override,
         serializer: serializer_override,
         path: path_override,
-        headers: headers_override
+        headers: headers_override,
+        **stream_options
       )
     end
 
@@ -221,6 +252,34 @@ class ChatAction
   end
 
   private
+
+  # The native reasoning fields for a Converse model whose family the
+  # serializer does not map, or nil when it maps the family itself.
+  #
+  # @param model [String, nil] the Bedrock model id
+  # @param effort [String, nil] the requested effort level, or "off"
+  # @return [Hash, nil] the additionalModelRequestFields to send
+  def converse_reasoning_fields(model, effort)
+    return nil unless effort
+
+    segments = model.to_s.split("/").last.to_s.split(".")
+    family = segments.first(2).find { |segment| CONVERSE_REASONING_FIELDS.key?(segment) }
+    CONVERSE_REASONING_FIELDS[family]&.call(effort)
+  end
+
+  # Request options for a streamed response. A stream can run much longer than
+  # the processor's default request timeout, so the full request gets a long
+  # limit while the read timeout catches a stream that stops sending data. A
+  # streamed body is several times larger than the JSON body, so the response
+  # size limit is raised too.
+  def stream_request_options(params)
+    return {} unless params["stream"] == true
+
+    options = {stream: true, timeout: STREAM_TIMEOUT, max_response_size: STREAM_MAX_RESPONSE_SIZE}
+    read_timeout = params["read_timeout"].to_i
+    options[:read_timeout] = read_timeout if read_timeout > 0
+    options
+  end
 
   def resolve_url_content_type(url)
     uri = URI.parse(url)

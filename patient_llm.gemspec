@@ -35,8 +35,8 @@ Gem::Specification.new do |spec|
 
   spec.require_paths = ["lib"]
 
-  spec.required_ruby_version = ">= 3.2"
+  spec.required_ruby_version = ">= 3.3"
 
-  spec.add_dependency "patient_http", ">= 1.5.0"
+  spec.add_dependency "patient_http", ">= 1.8.0"
   spec.add_dependency "prompt_builder", "~> 0.5"
 end

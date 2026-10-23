@@ -149,7 +149,7 @@ end
 PatientHttp.register_secret("custom.api_key") { ENV["CUSTOM_API_KEY"] }
 ```
 
-Provider options: `url`, `headers`, `serializer`, `path`, `params` (merged into every payload), `preprocessors`, `timeout`, `max_tool_iterations`, `api_key` (see [provider presets](#provider-presets)), and `region` (used by region-templated presets such as `:bedrock_runtime`).
+Provider options: `url`, `headers`, `serializer`, `path`, `params` (merged into every payload), `preprocessors`, `timeout`, `stream`, `read_timeout`, `max_response_size` (see [streaming responses](#streaming-responses)), `max_tool_iterations`, `api_key` (see [provider presets](#provider-presets)), and `region` (used by region-templated presets such as `:bedrock_runtime`).
 
 Every provider option (except `name`, `preset`, and `api_key`) may also be a callable, evaluated each time the provider is looked up — i.e. on every request — so values can be generated dynamically at runtime (`api_key` is consumed at registration time to build the authentication header; a callable key is resolved on the processor side at dispatch):
 
@@ -172,6 +172,33 @@ PatientLLM.configure do |config|
   config.processor = :llm
 end
 ```
+
+### Streaming responses
+
+LLM requests that generate for a long time can fail without streaming: the connection sits idle while the model works, and proxies, NAT gateways, or the provider's own front end may drop it before the response arrives. Anthropic, for example, recommends streaming for any request that might take longer than 10 minutes. With `stream: true`, the provider sends the response as it is generated, so data keeps flowing for the whole request.
+
+The streamed body is reassembled into the same response the non-streaming endpoint would have returned before your callback runs (with prompt_builder's `Response.parse_stream`), so callbacks, hooks, tool loops, and structured output work the same way. Tokens are not delivered to your code as they arrive.
+
+```ruby
+PatientLLM.configure do |config|
+  config.provider :anthropic, preset: :anthropic, api_key: -> { ENV["ANTHROPIC_API_KEY"] },
+    stream: true,
+    timeout: 30 * 60,                    # limit for the full stream
+    read_timeout: 120,                   # limit for each wait for data
+    max_response_size: 16 * 1024 * 1024  # streamed bodies are larger than JSON bodies
+end
+```
+
+- `stream` turns streaming on for the provider's requests. A `stream:` option on `ask` (or an agent's `stream` declaration) overrides it for a request, including `stream: false`. A `stream` key in `params` is treated the same way: request settings win over provider settings, and at each level the `stream` option wins over a `stream` param. When none is set, the session's `stream` field applies.
+- `timeout` still limits the full request, so raise it for long generations.
+- `read_timeout` is the maximum number of seconds to wait for data from the server. The timer starts again each time a chunk arrives, so a stream that stops fails fast while a long stream that keeps sending data runs until `timeout`. It only applies to streamed requests: without streaming, the server sends nothing until it has generated the whole response.
+- `max_response_size` overrides the PatientHttp `max_response_size` (1MB by default) for the provider's requests. A streamed body is several times larger than the equivalent JSON body.
+
+Streaming works with every API format. The Chat Completions, Open Responses, and Messages formats send `stream: true` in the request body. Gemini and Bedrock Converse stream from a different endpoint, which is used by default when streaming (`v1beta/models/{model}:streamGenerateContent?alt=sse` and `model/{model}/converse-stream`); an explicit `path` is used as is.
+
+A stream that reports an error after the response started (such as an Anthropic `overloaded_error` event, which arrives with a 200 status), ends before its final event, or is malformed is sent to `on_error` (or an agent's `failed` hook) as a `PatientHttp::RequestError` with an `error_type` of `:stream_error`. The `error_class` names the prompt_builder error (`PromptBuilder::ErrorResponseError`, `PromptBuilder::IncompleteStreamError`, or `PromptBuilder::ParseError`), and `http_response` holds the streamed body.
+
+Streaming requires patient_http 1.8.0 or later.
 
 ### Request signing (preprocessors)
 
@@ -213,6 +240,7 @@ class ResearchAgent < PatientLLM::Agent
   max_output_tokens 4_000
   reasoning :medium             # portable effort level, or reasoning budget_tokens: 8_000
   max_tool_iterations 5         # tool loop cap for this agent (default 10)
+  stream true                   # stream responses (see "Streaming responses")
   extra guardrail_config: {guardrailIdentifier: "gr-1", guardrailVersion: "1"}
 end
 ```
@@ -492,6 +520,9 @@ PatientLLM.ask(session,
   params: {max_completion_tokens: 1000},   # Additional request parameters
   preprocessors: :aws_sigv4,               # Replace the provider's request preprocessors
   timeout: 600,                            # Request timeout in seconds
+  stream: true,                            # Stream the response (see "Streaming responses")
+  read_timeout: 120,                       # Maximum wait for data on a streamed request
+  max_response_size: 16 * 1024 * 1024,     # Maximum response body size in bytes
   max_tool_iterations: 3,                  # Tool loop cap for this request
   processor: :llm                          # Named PatientHttp processor for this request
 )

@@ -16,7 +16,8 @@ class LLMCallback
       model_id: llm_response.model,
       input_tokens: llm_response.usage&.input_tokens,
       output_tokens: llm_response.usage&.output_tokens,
-      duration: http_response.duration&.round(1)
+      duration: http_response.duration&.round(1),
+      streamed: http_response.content_type.to_s.include?("stream")
     }
 
     text_format = session.text&.dig("format", "type")
