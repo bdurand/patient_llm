@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `stream:` passed to an agent's `ask` or `preview_request` is a request option instead of a session option, so it is accepted by `continue` and is not saved in the conversation state.
 - patient_http minimum version is now 1.8.0, which adds the `read_timeout` and per-request `max_response_size` options.
+- Minimum Ruby version is now 3.3.
 
 ## 0.9.0
 
