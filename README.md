@@ -219,11 +219,24 @@ end
 
 `instructions` sets system-level instructions for the request. On APIs without a separate instructions field they are appended to the system prompt.
 
+`reasoning` configures reasoning (extended thinking), applied with prompt_builder's `session.think`. It accepts a portable effort level (`:minimal`, `:low`, `:medium`, `:high`, `:xhigh`, `:max`), `effort:` or `budget_tokens:`, or `false` to turn reasoning off. `nil` and `false` are different: `reasoning nil` means no reasoning configuration, so the request carries no reasoning parameter and the API's default applies (some models, such as recent Claude models, reason by default), while `reasoning false` explicitly turns reasoning off (e.g. `thinking: {type: "disabled"}` for Claude models). An effort level can accompany `false` (`reasoning false, effort: :low`) for APIs such as Anthropic Messages, where effort also limits token spend without thinking; APIs whose only reasoning control is effort ignore it and keep reasoning off.
+
+```ruby
+reasoning :medium                   # portable effort level
+reasoning budget_tokens: 8_000      # explicit thinking budget, where supported
+reasoning true                      # reasoning on, depth left to the API
+reasoning false                     # reasoning off
+reasoning false, effort: :low       # reasoning off, with an effort level on Messages
+reasoning nil                       # no reasoning configuration (removes an inherited value)
+```
+
+The reader returns the normalized `session.think` options (`{effort: "medium"}`, `{budget_tokens: 8000}`, `{}`, `{enabled: false}`, or `nil`).
+
 `extra` sets provider-specific extra data on every session the agent builds. The recognized keys depend on the serializer used for the request — for example, the Bedrock Converse serializer maps `guardrail_config`, `stop_sequences`, `additional_model_request_fields`, and `performance_config` into the request payload (see the prompt_builder docs for each serializer's keys). Redeclaring `extra` in a subclass replaces the whole hash, and `continue` re-applies the agent's current value to restored sessions. A per-request `ask(extra: {...})` replaces the declaration for that request; to add to it instead, merge explicitly: `MyAgent.ask(msg, extra: MyAgent.extra.merge(...))`. Session options such as `extra:` are only accepted when `ask` builds the session — passing them to `continue`, or together with a `session:`, raises `ArgumentError`.
 
 ### Dynamic values
 
-Every scalar declaration (`provider`, `model`, `system`, `instructions`, `temperature`, `max_output_tokens`, `max_tool_iterations`, and `extra`) also accepts a block in lieu of the argument, or a callable (anything responding to `call`) as the argument. The block or callable is evaluated each time the agent builds or sends a request, so the value can be generated dynamically at runtime:
+Every scalar declaration (`provider`, `model`, `system`, `instructions`, `temperature`, `max_output_tokens`, `reasoning`, `max_tool_iterations`, and `extra`) also accepts a block in lieu of the argument, or a callable (anything responding to `call`) as the argument. The block or callable is evaluated each time the agent builds or sends a request, so the value can be generated dynamically at runtime:
 
 ```ruby
 class ResearchAgent < PatientLLM::Agent
@@ -232,7 +245,21 @@ class ResearchAgent < PatientLLM::Agent
 end
 ```
 
-Validation and coercion (`extra`'s Hash check, `provider`'s symbol coercion) apply to the block's result each time it is evaluated.
+Validation and coercion (`extra`'s Hash check, `provider`'s symbol coercion, `reasoning`'s normalization) apply to the block's result each time it is evaluated. A `reasoning` block can return any value the static form accepts — an effort level, a Hash such as `{budget_tokens: 2048}`, `false` to turn reasoning off, or `nil` for no configuration:
+
+```ruby
+class SupportAgent < PatientLLM::Agent
+  model { LLMExperiment.model }
+  reasoning { LLMExperiment.reasoning_effort }   # e.g. :low, :high, or false
+  max_output_tokens { LLMExperiment.max_output_tokens }
+end
+```
+
+Per-request session options override the declarations for one request. The `reasoning:` option is normalized the same way as the declaration, so `reasoning: :low`, `reasoning: {budget_tokens: 2048}`, and `reasoning: false` produce the same request as the equivalent `reasoning` declaration, and `reasoning: nil` sends no reasoning configuration for that request. Any other Hash (e.g. `{summary: "auto"}`) is set as the session's raw reasoning configuration for provider-specific settings:
+
+```ruby
+SupportAgent.ask(message, reasoning: false, max_output_tokens: 1_000)
+```
 
 ### Inheritance
 
