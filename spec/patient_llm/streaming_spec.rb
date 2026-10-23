@@ -236,6 +236,18 @@ RSpec.describe PatientLLM, "streaming" do
       end
     end
 
+    it "does not modify the caller's session to set the stream field" do
+      # A frozen session raises on any write, so this fails if the stream
+      # setting is applied to the shared session instead of a copy.
+      session.freeze
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :stream_messages, callback: "TestStreamCallback", stream: true)
+
+        expect(payload(captured)["stream"]).to eq(true)
+      end
+    end
+
     it "uses the streaming endpoint for Gemini" do
       gemini_session = PromptBuilder::Session.new(model: "gemini-2.5-flash").tap { |s| s.user("Hi") }
 
@@ -342,6 +354,16 @@ RSpec.describe PatientLLM, "streaming" do
         {"type" => "content_block_delta", "index" => 0, "delta" => {"type" => "text_delta", "text" => "Partial"}}
       )
       stub_request(:post, messages_url).to_return(sse_response(body))
+
+      ask_inline(stream: true)
+
+      error = TestStreamCallback.recorded[:error]
+      expect(error.error_type).to eq(:stream_error)
+      expect(error.error_class).to eq(PromptBuilder::IncompleteStreamError)
+    end
+
+    it "routes a streamed response with no body to on_error" do
+      stub_request(:post, messages_url).to_return(status: 204, headers: {"content-type" => "text/event-stream"})
 
       ask_inline(stream: true)
 

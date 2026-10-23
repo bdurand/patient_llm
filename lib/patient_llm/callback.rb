@@ -95,7 +95,9 @@ module PatientLLM
       serializer = resolve_serializer(callback_args)
       if streamed_response?(response, callback_args)
         begin
-          llm_response = PromptBuilder::Response.parse_stream(response.body, serializer, headers: response.headers)
+          # A response with no body (such as a 204) is an empty stream, which
+          # the parser reports as incomplete.
+          llm_response = PromptBuilder::Response.parse_stream(response.body || "", serializer, headers: response.headers)
         rescue PromptBuilder::UnexpectedPayloadError, PromptBuilder::ParseError => e
           error = request_error(e, :stream_error, response, original_request_id)
           invoke_user_callback(user_callback, :on_error, session: session, provider: provider_name, callback_args: user_callback_args(callback_args), error: error, http_response: response, request_id: original_request_id)

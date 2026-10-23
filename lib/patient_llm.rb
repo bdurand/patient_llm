@@ -408,15 +408,17 @@ module PatientLLM
     end
 
     # Serialize the session with its stream field set to match the resolved
-    # streaming setting, restoring the field afterwards so the setting does not
-    # become part of the conversation state. A session that never set the field
-    # keeps it unset when the request is not streamed.
+    # streaming setting. The field is set on a shallow copy, so the setting
+    # does not become part of the conversation state and concurrent requests
+    # sharing the session do not see each other's setting. A session that never
+    # set the field keeps it unset when the request is not streamed.
     def streaming_payload(session, serializer, stream)
-      previous = session.stream
-      session.stream = stream || (previous.nil? ? nil : false)
-      session.request_payload(serializer)
-    ensure
-      session.stream = previous
+      value = stream || (session.stream.nil? ? nil : false)
+      return session.request_payload(serializer) if value == session.stream
+
+      copy = session.dup
+      copy.stream = value
+      copy.request_payload(serializer)
     end
 
     # The processor name from the configuration, calling a callable value and
