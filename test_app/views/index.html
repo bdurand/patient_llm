@@ -201,6 +201,20 @@
           <summary>Response</summary>
 
           <div class="setting-group">
+            <label>
+              <input type="checkbox" id="stream-enabled">
+              Stream Response
+            </label>
+          </div>
+
+          <div id="stream-options" style="display: none;">
+            <div class="setting-group">
+              <label for="read-timeout">Read Timeout (seconds, 0 = none)</label>
+              <input type="number" id="read-timeout" value="60" min="0" max="3600" autocomplete="off" autocapitalize="off">
+            </div>
+          </div>
+
+          <div class="setting-group">
             <label for="truncation">Truncation</label>
             <select id="truncation">
               <option value="" selected>(not set)</option>

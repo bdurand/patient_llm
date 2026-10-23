@@ -4,6 +4,9 @@ require "json"
 require "net/http"
 
 class ChatAction
+  STREAM_TIMEOUT = 30 * 60
+  STREAM_MAX_RESPONSE_SIZE = 16 * 1024 * 1024
+
   def call(env)
     request = Rack::Request.new(env)
     params = JSON.parse(request.body.read)
@@ -188,6 +191,7 @@ class ChatAction
     end
 
     request_id = SecureRandom.uuid
+    stream_options = stream_request_options(params)
 
     if agent_class
       # The agent adds the message, dispatches with its declared provider, and
@@ -196,7 +200,8 @@ class ChatAction
       agent_class.ask(
         message_content,
         session: session,
-        context: {request_id: request_id, start_time: Time.now.to_f}
+        context: {request_id: request_id, start_time: Time.now.to_f},
+        **stream_options
       )
     else
       session.user(message_content)
@@ -209,7 +214,8 @@ class ChatAction
         url: url_override,
         serializer: serializer_override,
         path: path_override,
-        headers: headers_override
+        headers: headers_override,
+        **stream_options
       )
     end
 
@@ -221,6 +227,20 @@ class ChatAction
   end
 
   private
+
+  # Request options for a streamed response. A stream can run much longer than
+  # the processor's default request timeout, so the full request gets a long
+  # limit while the read timeout catches a stream that stops sending data. A
+  # streamed body is several times larger than the JSON body, so the response
+  # size limit is raised too.
+  def stream_request_options(params)
+    return {} unless params["stream"] == true
+
+    options = {stream: true, timeout: STREAM_TIMEOUT, max_response_size: STREAM_MAX_RESPONSE_SIZE}
+    read_timeout = params["read_timeout"].to_i
+    options[:read_timeout] = read_timeout if read_timeout > 0
+    options
+  end
 
   def resolve_url_content_type(url)
     uri = URI.parse(url)

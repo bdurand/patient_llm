@@ -31,6 +31,18 @@ module PatientLLM
     gemini: "v1beta/models/{model}:generateContent"
   }.freeze
 
+  # Default API paths per serializer format for streamed requests. Gemini and
+  # Bedrock Converse select streaming by endpoint; the other formats stream
+  # from the same endpoint with `stream: true` in the request body.
+  STREAMING_SERIALIZER_PATHS = SERIALIZER_PATHS.merge(
+    converse: "model/{model}/converse-stream",
+    gemini: "v1beta/models/{model}:streamGenerateContent?alt=sse"
+  ).freeze
+
+  # Content types of streamed response bodies: Server-Sent Events, and the AWS
+  # event-stream framing used by Bedrock Converse.
+  STREAM_CONTENT_TYPES = ["text/event-stream", "application/vnd.amazon.eventstream"].freeze
+
   # Required version header for the Anthropic Messages API.
   ANTHROPIC_VERSION = "2023-06-01"
 
@@ -153,6 +165,15 @@ module PatientLLM
     #   preprocessors; pass an empty array to clear them for this request.
     # @param timeout [Numeric, nil] Request timeout in seconds for this request. Overrides
     #   the provider's timeout; defaults to the PatientHttp processor configuration.
+    #   For a streamed request this limits the full stream.
+    # @param stream [Boolean, nil] Whether to stream the response. The streamed body is
+    #   reassembled into a single response before the callback runs. Overrides the
+    #   provider's setting; when neither is set, the session's `stream` field applies.
+    # @param read_timeout [Numeric, nil] Maximum seconds to wait for data from the
+    #   server on a streamed request. Overrides the provider's read timeout. Not
+    #   applied to requests that are not streamed.
+    # @param max_response_size [Integer, nil] Maximum response body size in bytes.
+    #   Overrides the provider's setting; defaults to the PatientHttp configuration.
     # @param max_tool_iterations [Integer, nil] Maximum automatic tool-execution rounds
     #   for this request. Overrides the provider's setting; defaults to
     #   {Callback::MAX_TOOL_ITERATIONS}.
@@ -160,7 +181,7 @@ module PatientLLM
     #   should execute this request. Overrides the configuration's processor;
     #   defaults to nil, which uses the default processor.
     # @return [Object] Handler-specific identifier for the enqueued request
-    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil, processor: nil)
+    def ask(session, provider:, callback:, callback_args: {}, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, stream: nil, read_timeout: nil, max_response_size: nil, max_tool_iterations: nil, processor: nil)
       request_options = build_request_options(
         url: url,
         serializer: serializer,
@@ -169,6 +190,9 @@ module PatientLLM
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
+        stream: stream,
+        read_timeout: read_timeout,
+        max_response_size: max_response_size,
         max_tool_iterations: max_tool_iterations,
         processor: processor
       )
@@ -197,12 +221,18 @@ module PatientLLM
     # @param preprocessors [String, Symbol, Array<String, Symbol>, nil] Accepted for
     #   parity with {.ask}; preprocessors are not applied to the preview.
     # @param timeout [Numeric, nil] Accepted for parity with {.ask}; does not affect the preview.
+    # @param stream [Boolean, nil] Whether to stream the response. Streaming changes the
+    #   endpoint path for some formats and the payload, so it is reflected in the preview.
+    # @param read_timeout [Numeric, nil] Accepted for parity with {.ask}; does not affect
+    #   the preview.
+    # @param max_response_size [Integer, nil] Accepted for parity with {.ask}; does not
+    #   affect the preview.
     # @param max_tool_iterations [Integer, nil] Accepted for parity with {.ask}; does not
     #   affect the preview.
     # @param processor [String, Symbol, nil] Accepted for parity with {.ask}; does not
     #   affect the preview.
     # @return [RequestPreview] The url, headers, and JSON payload the request would send
-    def preview_request(session, provider:, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, max_tool_iterations: nil, processor: nil)
+    def preview_request(session, provider:, url: nil, serializer: nil, path: nil, headers: nil, params: nil, preprocessors: nil, timeout: nil, stream: nil, read_timeout: nil, max_response_size: nil, max_tool_iterations: nil, processor: nil)
       request_options = build_request_options(
         url: url,
         serializer: serializer,
@@ -211,6 +241,9 @@ module PatientLLM
         params: params,
         preprocessors: preprocessors,
         timeout: timeout,
+        stream: stream,
+        read_timeout: read_timeout,
+        max_response_size: max_response_size,
         max_tool_iterations: max_tool_iterations,
         processor: processor
       )
@@ -245,6 +278,7 @@ module PatientLLM
         callback: callback.to_s,
         custom: PromptBuilder.jsonify(callback_args || {}),
         request_options: request_options,
+        stream: resolved.stream,
         max_tool_iterations: resolved.max_tool_iterations,
         tool_iteration: tool_iteration,
         original_request_id: original_request_id
@@ -258,6 +292,8 @@ module PatientLLM
           headers: resolved.headers,
           preprocessors: resolved.preprocessors,
           timeout: resolved.timeout,
+          read_timeout: resolved.read_timeout,
+          max_response_size: resolved.max_response_size,
           processor: resolved.processor
         )
         PatientHttp.execute_inline(
@@ -273,6 +309,8 @@ module PatientLLM
           headers: resolved.headers,
           preprocessors: resolved.preprocessors,
           timeout: resolved.timeout,
+          read_timeout: resolved.read_timeout,
+          max_response_size: resolved.max_response_size,
           processor: resolved.processor,
           raise_error_responses: true,
           callback: PatientLLM::Callback,
@@ -285,14 +323,14 @@ module PatientLLM
 
     # Fully resolved request produced by merging per-request options over the
     # provider configuration.
-    ResolvedRequest = Data.define(:url, :serializer, :headers, :payload, :preprocessors, :timeout, :max_tool_iterations, :processor)
+    ResolvedRequest = Data.define(:url, :serializer, :headers, :payload, :preprocessors, :timeout, :stream, :read_timeout, :max_response_size, :max_tool_iterations, :processor)
     private_constant :ResolvedRequest
 
     # Normalize per-request overrides into a request options hash. The request
     # options travel through the job queue in the callback args, which only
     # permit JSON-native values; convert Symbols (e.g. serializer names,
     # preprocessor names, header/param values) to Strings up front.
-    def build_request_options(url:, serializer:, path:, headers:, params:, preprocessors:, timeout:, max_tool_iterations:, processor:)
+    def build_request_options(url:, serializer:, path:, headers:, params:, preprocessors:, timeout:, stream:, read_timeout:, max_response_size:, max_tool_iterations:, processor:)
       request_options = {}
       request_options["url"] = url if url
       request_options["serializer"] = serializer.to_s if serializer
@@ -301,6 +339,10 @@ module PatientLLM
       request_options["params"] = params if params && !params.empty?
       request_options["preprocessors"] = preprocessors if preprocessors
       request_options["timeout"] = timeout if timeout
+      # An explicit false is kept so a request can turn off a provider's streaming.
+      request_options["stream"] = stream unless stream.nil?
+      request_options["read_timeout"] = read_timeout if read_timeout
+      request_options["max_response_size"] = max_response_size if max_response_size
       request_options["max_tool_iterations"] = max_tool_iterations if max_tool_iterations
       request_options["processor"] = processor.to_s if processor
 
@@ -318,7 +360,9 @@ module PatientLLM
       resolved_serializer = (request_options["serializer"] || provider_config[:serializer] || :chat_completion).to_sym
       validate_serializer!(resolved_serializer)
 
-      resolved_path = request_options["path"] || provider_config[:path] || SERIALIZER_PATHS[resolved_serializer]
+      stream = resolve_stream(session, provider_config, request_options)
+      default_paths = stream ? STREAMING_SERIALIZER_PATHS : SERIALIZER_PATHS
+      resolved_path = request_options["path"] || provider_config[:path] || default_paths[resolved_serializer]
       if resolved_path.include?("{model}")
         raise ArgumentError, "The endpoint path #{resolved_path.inspect} includes a {model} placeholder but session.model is not set" if session.model.nil?
 
@@ -335,7 +379,7 @@ module PatientLLM
 
       resolved_params = (provider_config[:params] || {}).merge(request_options["params"] || {})
 
-      payload = session.request_payload(resolved_serializer)
+      payload = streaming_payload(session, resolved_serializer, stream)
       payload = deep_merge(payload, deep_stringify_keys(resolved_params)) unless resolved_params.empty?
 
       ResolvedRequest.new(
@@ -345,9 +389,34 @@ module PatientLLM
         payload: payload,
         preprocessors: request_options["preprocessors"] || provider_config[:preprocessors],
         timeout: request_options["timeout"] || provider_config[:timeout],
+        stream: stream,
+        # The read timeout covers the wait for the response headers, which a
+        # non-streamed LLM request spends generating the whole response, so it
+        # only applies to streamed requests.
+        read_timeout: stream ? (request_options["read_timeout"] || provider_config[:read_timeout]) : nil,
+        max_response_size: request_options["max_response_size"] || provider_config[:max_response_size],
         max_tool_iterations: (request_options["max_tool_iterations"] || provider_config[:max_tool_iterations] || Callback::MAX_TOOL_ITERATIONS).to_i,
         processor: request_options["processor"] || configured_processor
       )
+    end
+
+    # Whether the request streams its response. The first value that is set
+    # wins: the request option, the provider setting, then the session's
+    # stream field.
+    def resolve_stream(session, provider_config, request_options)
+      [request_options["stream"], provider_config[:stream], session.stream].find { |value| !value.nil? } == true
+    end
+
+    # Serialize the session with its stream field set to match the resolved
+    # streaming setting, restoring the field afterwards so the setting does not
+    # become part of the conversation state. A session that never set the field
+    # keeps it unset when the request is not streamed.
+    def streaming_payload(session, serializer, stream)
+      previous = session.stream
+      session.stream = stream || (previous.nil? ? nil : false)
+      session.request_payload(serializer)
+    ensure
+      session.stream = previous
     end
 
     # The processor name from the configuration, calling a callable value and

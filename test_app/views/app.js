@@ -23,6 +23,8 @@ const frequencyPenaltyValueEl = document.getElementById('frequency-penalty-value
 const thinkingEnabledEl = document.getElementById('thinking-enabled');
 const thinkingOptionsEl = document.getElementById('thinking-options');
 const toolsEnabledEl = document.getElementById('tools-enabled');
+const streamEnabledEl = document.getElementById('stream-enabled');
+const streamOptionsEl = document.getElementById('stream-options');
 const toolsOptionsEl = document.getElementById('tools-options');
 const metadataEntriesEl = document.getElementById('metadata-entries');
 const addMetadataBtn = document.getElementById('add-metadata-btn');
@@ -61,6 +63,11 @@ document.querySelectorAll('.sampling-toggle').forEach(toggle => {
     const target = document.getElementById(toggle.dataset.target);
     target.disabled = !toggle.checked;
   });
+});
+
+// Toggle stream options
+streamEnabledEl.addEventListener('change', () => {
+  streamOptionsEl.style.display = streamEnabledEl.checked ? 'block' : 'none';
 });
 
 // Toggle thinking options
@@ -427,6 +434,12 @@ function getSettings() {
   }
 
   // Response control
+  if (streamEnabledEl.checked) {
+    settings.stream = true;
+    const readTimeout = parseInt(document.getElementById('read-timeout').value) || 0;
+    if (readTimeout > 0) settings.read_timeout = readTimeout;
+  }
+
   const truncation = document.getElementById('truncation').value;
   if (truncation) settings.truncation = truncation;
 
@@ -621,6 +634,9 @@ function handleResult(requestId, result) {
         renderedContent = Markdown.render(result.message.content);
       }
       let metaText = `Tokens: ${result.message.input_tokens || 0} in / ${result.message.output_tokens || 0} out`;
+      if (result.message.streamed) {
+        metaText += ' | Streamed';
+      }
       const latency = formatLatency(result);
       if (latency) {
         metaText += ` | ${latency}`;

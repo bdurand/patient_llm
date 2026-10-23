@@ -73,6 +73,12 @@ module PatientLLM
     REASONING_OPTIONS = %i[enabled effort budget_tokens].freeze
     private_constant :REASONING_OPTIONS
 
+    # Session options accepted by {ask} and {preview_request}. The session's
+    # stream field is excluded: stream: is a request option, so it can be
+    # used with {continue} and is not saved in the conversation state.
+    SESSION_OPTIONS = (PromptBuilder::Session::INITIALIZE_OPTIONS - [:stream]).freeze
+    private_constant :SESSION_OPTIONS
+
     class << self
       # DSL: get or set the provider name for this agent. The value is
       # inherited from the parent agent class unless set; pass an explicit nil
@@ -204,6 +210,22 @@ module PatientLLM
         get_or_set_setting(:max_tool_iterations, value, block)
       end
 
+      # DSL: get or set whether this agent's requests stream their responses.
+      # The streamed body is reassembled into a single response before the
+      # hooks run, so streaming only changes how the response travels: data
+      # keeps flowing during long generations instead of the connection
+      # sitting idle. The value is inherited from the parent agent class
+      # unless set; pass an explicit nil to remove an inherited value and use
+      # the provider's setting. A stream: option passed to {ask} overrides it.
+      #
+      # @param value [Boolean, nil] whether to stream. Passing an explicit nil removes the previously set value.
+      # @yield an optional block (or callable argument) called each time the
+      #   value is read so it can be generated dynamically.
+      # @return [Boolean, nil]
+      def stream(value = NOT_SPECIFIED, &block)
+        get_or_set_setting(:stream, value, block)
+      end
+
       # DSL: get or set provider-specific extra data set on sessions built by
       # this agent (e.g. the Bedrock Converse :guardrail_config). The
       # recognized keys depend on the serializer used for the request. The
@@ -299,7 +321,8 @@ module PatientLLM
       #   agent. Defaults to sending the hooks to the agent itself.
       # @param options [Hash] per-request overrides forwarded to {PatientLLM.ask}
       #   (url:, serializer:, path:, headers:, params:, preprocessors:, timeout:,
-      #   max_tool_iterations:, processor:), plus session options (model:, temperature:,
+      #   stream:, read_timeout:, max_response_size:, max_tool_iterations:,
+      #   processor:), plus session options (model:, temperature:,
       #   extra:, etc. — any PromptBuilder::Session::INITIALIZE_OPTIONS key)
       #   applied to the newly built session; session options raise
       #   ArgumentError when a session: is supplied. The reasoning: option
@@ -308,13 +331,13 @@ module PatientLLM
       #   way; see {build_session}.
       # @return [Object] handler-specific identifier for the enqueued request
       def ask(message = nil, context: {}, session: nil, callback: nil, **options)
-        session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        session_options = options.slice(*SESSION_OPTIONS)
         raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
 
         session ||= build_session(**session_options)
         session.user(message) if message
 
-        ask_options = options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        ask_options = with_declared_stream(options.except(*SESSION_OPTIONS))
         iterations = max_tool_iterations
         ask_options[:max_tool_iterations] ||= iterations if iterations
 
@@ -397,7 +420,7 @@ module PatientLLM
       # @param options [Hash] the same per-request overrides accepted by {ask}
       # @return [PatientLLM::RequestPreview] the url, headers, and JSON payload
       def preview_request(message = nil, session: nil, context: nil, callback: nil, **options)
-        session_options = options.slice(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+        session_options = options.slice(*SESSION_OPTIONS)
         raise ArgumentError.new("session options cannot be passed when a session is provided") if session && session_options.any?
 
         session ||= build_session(**session_options)
@@ -406,7 +429,7 @@ module PatientLLM
         PatientLLM.preview_request(
           session,
           provider: provider_name!,
-          **options.except(*PromptBuilder::Session::INITIALIZE_OPTIONS)
+          **with_declared_stream(options.except(*SESSION_OPTIONS))
         )
       end
 
@@ -487,6 +510,15 @@ module PatientLLM
 
       def provider_name!
         provider || raise(ArgumentError, "#{self} must declare a provider")
+      end
+
+      # Add the agent's stream declaration to request options that do not set
+      # stream: themselves.
+      def with_declared_stream(options)
+        return options if options.key?(:stream)
+
+        declared = stream
+        declared.nil? ? options : options.merge(stream: declared)
       end
 
       # Resolve the :callback option to the class name that travels through the
