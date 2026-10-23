@@ -2,10 +2,6 @@ source "https://rubygems.org"
 
 gemspec
 
-# Use the unreleased prompt_builder 0.5.0 and patient_http 1.8.0 until they are published.
-gem "prompt_builder", github: "bdurand/prompt_builder", branch: "t3/streamed-response-reassembly"
-gem "patient_http", github: "bdurand/patient_http", branch: "t3/streaming-response-handling"
-
 # Exclude development-only gems from dependabot.
 unless ENV["DEPENDABOT"]
   gem "aws-sigv4"
