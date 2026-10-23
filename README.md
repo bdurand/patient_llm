@@ -189,7 +189,7 @@ PatientLLM.configure do |config|
 end
 ```
 
-- `stream` turns streaming on for the provider's requests. A `stream:` option on `ask` (or an agent's `stream` declaration) overrides it for a request, including `stream: false`. When neither is set, the session's `stream` field applies.
+- `stream` turns streaming on for the provider's requests. A `stream:` option on `ask` (or an agent's `stream` declaration) overrides it for a request, including `stream: false`. A `stream` key in `params` is treated the same way: request settings win over provider settings, and at each level the `stream` option wins over a `stream` param. When none is set, the session's `stream` field applies.
 - `timeout` still limits the full request, so raise it for long generations.
 - `read_timeout` is the maximum number of seconds to wait for data from the server. The timer starts again each time a chunk arrives, so a stream that stops fails fast while a long stream that keeps sending data runs until `timeout`. It only applies to streamed requests: without streaming, the server sends nothing until it has generated the whole response.
 - `max_response_size` overrides the PatientHttp `max_response_size` (1MB by default) for the provider's requests. A streamed body is several times larger than the equivalent JSON body.

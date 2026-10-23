@@ -248,6 +248,44 @@ RSpec.describe PatientLLM, "streaming" do
       end
     end
 
+    it "gives the stream option precedence over a provider stream param" do
+      PatientLLM.configure do |c|
+        c.provider :stream_params, url: "https://api.openai.example", serializer: :chat_completion, params: {stream: false}
+      end
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :stream_params, callback: "TestStreamCallback", stream: true, read_timeout: 45)
+
+        body = payload(captured)
+        expect(body["stream"]).to eq(true)
+        expect(body["stream_options"]).to eq({"include_usage" => true})
+        expect(captured.call[:request].read_timeout).to eq(45)
+        expect(captured.call[:callback_args][:stream]).to eq(true)
+      end
+    end
+
+    it "turns off streaming when a request stream param is false" do
+      with_fake_handler do |captured|
+        PatientLLM.ask(session, provider: :stream_default, callback: "TestStreamCallback", params: {stream: false})
+
+        expect(payload(captured)).not_to have_key("stream")
+        expect(captured.call[:request].read_timeout).to be_nil
+        expect(captured.call[:callback_args][:stream]).to eq(false)
+      end
+    end
+
+    it "streams when a request stream param is true" do
+      gemini_session = PromptBuilder::Session.new(model: "gemini-2.5-flash").tap { |s| s.user("Hi") }
+
+      with_fake_handler do |captured|
+        PatientLLM.ask(gemini_session, provider: :stream_gemini, callback: "TestStreamCallback", params: {stream: true})
+
+        expect(captured.call[:request].url).to eq("https://gemini.example/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse")
+        expect(payload(captured)).not_to have_key("stream")
+        expect(captured.call[:callback_args][:stream]).to eq(true)
+      end
+    end
+
     it "uses the streaming endpoint for Gemini" do
       gemini_session = PromptBuilder::Session.new(model: "gemini-2.5-flash").tap { |s| s.user("Hi") }
 
@@ -313,12 +351,13 @@ RSpec.describe PatientLLM, "streaming" do
       expect(WebMock).to have_requested(:post, messages_url).with { |req| JSON.parse(req.body)["stream"] == true }
     end
 
-    it "parses a stream by its content type when streaming was requested another way" do
-      stub_request(:post, messages_url).to_return(sse_response(text_stream("From params")))
+    it "parses a stream by its content type when the request was not flagged as streaming" do
+      stream_url = "https://api.anthropic.example/v1/messages-stream"
+      stub_request(:post, stream_url).to_return(sse_response(text_stream("From the content type")))
 
-      ask_inline(params: {stream: true})
+      ask_inline(path: "v1/messages-stream")
 
-      expect(TestStreamCallback.recorded[:llm_response].text).to eq("From params")
+      expect(TestStreamCallback.recorded[:llm_response].text).to eq("From the content type")
     end
 
     it "parses a JSON body returned to a streamed request" do

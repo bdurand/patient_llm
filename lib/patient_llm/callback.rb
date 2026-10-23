@@ -211,9 +211,10 @@ module PatientLLM
     end
 
     # Whether the response body is a stream. The stream flag recorded at
-    # dispatch covers requests streamed by request option, provider setting, or
-    # session field; the content type also catches a stream requested some
-    # other way, such as a stream param merged into the payload.
+    # dispatch covers requests streamed by request option, stream param,
+    # provider setting, or session field; the content type also catches an
+    # endpoint that streams without being asked, such as a custom path to a
+    # streaming endpoint.
     def streamed_response?(response, callback_args)
       return true if callback_args.fetch(:stream, nil) == true
 

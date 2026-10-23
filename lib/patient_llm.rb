@@ -360,7 +360,9 @@ module PatientLLM
       resolved_serializer = (request_options["serializer"] || provider_config[:serializer] || :chat_completion).to_sym
       validate_serializer!(resolved_serializer)
 
-      stream = resolve_stream(session, provider_config, request_options)
+      provider_params = deep_stringify_keys(provider_config[:params])
+      request_params = deep_stringify_keys(request_options["params"])
+      stream = resolve_stream(session, provider_config, request_options, provider_params, request_params)
       default_paths = stream ? STREAMING_SERIALIZER_PATHS : SERIALIZER_PATHS
       resolved_path = request_options["path"] || provider_config[:path] || default_paths[resolved_serializer]
       if resolved_path.include?("{model}")
@@ -377,10 +379,13 @@ module PatientLLM
         resolved_headers = {"anthropic-version" => ANTHROPIC_VERSION}.merge(resolved_headers)
       end
 
-      resolved_params = (provider_config[:params] || {}).merge(request_options["params"] || {})
+      # The stream param is resolved with the stream option above and set
+      # through the serializer, which adds the options streaming needs (such
+      # as the Chat Completions usage option), so it is not merged on top.
+      resolved_params = provider_params.merge(request_params).except("stream")
 
       payload = streaming_payload(session, resolved_serializer, stream)
-      payload = deep_merge(payload, deep_stringify_keys(resolved_params)) unless resolved_params.empty?
+      payload = deep_merge(payload, resolved_params) unless resolved_params.empty?
 
       ResolvedRequest.new(
         url: join_url(resolved_url, resolved_path),
@@ -401,10 +406,17 @@ module PatientLLM
     end
 
     # Whether the request streams its response. The first value that is set
-    # wins: the request option, the provider setting, then the session's
-    # stream field.
-    def resolve_stream(session, provider_config, request_options)
-      [request_options["stream"], provider_config[:stream], session.stream].find { |value| !value.nil? } == true
+    # wins: the request option, a stream param on the request, the provider
+    # setting, a stream param on the provider, then the session's stream field.
+    def resolve_stream(session, provider_config, request_options, provider_params, request_params)
+      values = [
+        request_options["stream"],
+        request_params["stream"],
+        provider_config[:stream],
+        provider_params["stream"],
+        session.stream
+      ]
+      values.find { |value| !value.nil? } == true
     end
 
     # Serialize the session with its stream field set to match the resolved
