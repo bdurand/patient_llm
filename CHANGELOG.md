@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Agent.reasoning` accepts a block or callable argument like the other scalar declarations (e.g. `reasoning { LLMExperiment.reasoning_effort }`). It is evaluated each time a request is built, and its result is normalized with the same rules as a static value.
+- `reasoning false` turns reasoning off with `session.think(false)` (serialized as e.g. `thinking: {type: "disabled"}` on Anthropic Messages and Anthropic models on Converse), as opposed to `reasoning nil`, which sends no reasoning configuration and leaves the API's default in place. An effort level can accompany it (`reasoning false, effort: :low`). `reasoning true` turns reasoning on with the API's default depth.
+- `Agent.reasoning` also accepts a Hash of options (`{effort:}`, `{budget_tokens:}`, `{enabled: false}`), the form the reader returns.
 - Streaming responses. Set `stream: true` on a provider, pass `stream:` to `ask` (on `PatientLLM` or an agent, including `continue` and `ask!`), or declare `stream true` on an agent. The provider streams the response so data keeps flowing during long generations, and the streamed body is reassembled into a single `PromptBuilder::Response` before the callback runs, so callbacks, hooks, and tool loops are unchanged. Every API format is supported; Gemini and Bedrock Converse use their streaming endpoints by default when streaming.
 - `read_timeout` provider and request option: the maximum number of seconds to wait for data on a streamed request. It is not applied to requests that are not streamed.
 - `max_response_size` provider and request option to raise the PatientHttp response size limit for LLM requests, since streamed bodies are larger than JSON bodies.
@@ -15,23 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The per-request `reasoning:` option to `ask`, `ask!`, and `preview_request` is normalized the same way as the `reasoning` declaration, so `reasoning: :low`, `reasoning: "low"`, `reasoning: {effort: :low}`, `reasoning: {budget_tokens: 2048}`, and `reasoning: false` produce the same session reasoning as the equivalent declaration. Previously the value was set on the session as-is, so shorthands such as `reasoning: :low` set the session reasoning to a String instead of a configuration Hash. `reasoning: nil` still sends no reasoning configuration for the request, and a Hash with other keys is still used as the raw reasoning configuration.
+- `Agent.reasoning` raises an `ArgumentError` for values that are not a reasoning configuration (such as a number) instead of converting them to an effort level string.
+- prompt_builder minimum version is now 0.5, which adds the explicit reasoning off configuration used by `reasoning false`.
 - `stream:` passed to an agent's `ask` or `preview_request` is a request option instead of a session option, so it is accepted by `continue` and is not saved in the conversation state.
 - patient_http minimum version is now 1.8.0, which adds the `read_timeout` and per-request `max_response_size` options.
 - Minimum Ruby version is now 3.3.
 
-## 0.9.0
-
-### Added
-
-- `Agent.reasoning` accepts a block or callable argument like the other scalar declarations (e.g. `reasoning { LLMExperiment.reasoning_effort }`). It is evaluated each time a request is built, and its result is normalized with the same rules as a static value.
-- `reasoning false` turns reasoning off with `session.think(false)` (serialized as e.g. `thinking: {type: "disabled"}` on Anthropic Messages and Anthropic models on Converse), as opposed to `reasoning nil`, which sends no reasoning configuration and leaves the API's default in place. An effort level can accompany it (`reasoning false, effort: :low`). `reasoning true` turns reasoning on with the API's default depth.
-- `Agent.reasoning` also accepts a Hash of options (`{effort:}`, `{budget_tokens:}`, `{enabled: false}`), the form the reader returns.
-
-### Changed
-
-- The per-request `reasoning:` option to `ask`, `ask!`, and `preview_request` is normalized the same way as the `reasoning` declaration, so `reasoning: :low`, `reasoning: "low"`, `reasoning: {effort: :low}`, `reasoning: {budget_tokens: 2048}`, and `reasoning: false` produce the same session reasoning as the equivalent declaration. Previously the value was set on the session as-is, so shorthands such as `reasoning: :low` set the session reasoning to a String instead of a configuration Hash. `reasoning: nil` still sends no reasoning configuration for the request, and a Hash with other keys is still used as the raw reasoning configuration.
-- `Agent.reasoning` raises an `ArgumentError` for values that are not a reasoning configuration (such as a number) instead of converting them to an effort level string.
-- prompt_builder minimum version is now 0.5, which adds the explicit reasoning off configuration used by `reasoning false`.
+## 0.9.0 (Not released)
 
 ## 0.8.0
 
